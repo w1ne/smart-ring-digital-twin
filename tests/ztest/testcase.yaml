@@ -1,0 +1,15 @@
+# Twister metadata: makes the four suites discoverable on host (native_sim) and
+# on target. Same binary the `west build -t run` recipe exercises.
+common:
+  tags:
+    - sensor_manager
+    - unit
+tests:
+  sensor_manager.unit:
+    # native_sim for host CI; the nRF54L15 DK for on-target coverage against the
+    # real k_spinlock / GRTC timebase the firmware uses.
+    platform_allow:
+      - native_sim
+      - nrf54l15dk/nrf54l15/cpuapp
+    integration_platforms:
+      - native_sim

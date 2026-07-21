@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Ring Prototype — nRF54L15 Engineering Assessment</title>
+<meta name="description" content="A senior embedded-systems assessment for an open-source smart ring on the Nordic nRF54L15: system architecture, a working sensor manager validated on a cycle-accurate digital twin, and a debugging methodology.">
+<style>
+  :root{
+    --bg:#0d0d0f; --fg:#e8e8e6; --dim:#9a9a94; --line:#2a2a2e;
+    --accent:#ff5c37; --ok:#39d353; --bad:#ff5c37; --card:#151517; --mono:"SFMono-Regular",ui-monospace,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme: light){
+    :root{--bg:#f7f7f4;--fg:#161616;--dim:#5a5a54;--line:#dcdcd6;--card:#fff;}
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);
+    font-family:var(--mono);line-height:1.55;-webkit-font-smoothing:antialiased}
+  body{max-width:960px;margin:0 auto;padding:0 20px 80px}
+  a{color:var(--accent);text-decoration:none;border-bottom:1px solid transparent}
+  a:hover{border-bottom-color:var(--accent)}
+  header{border-bottom:2px solid var(--fg);padding:48px 0 24px;margin-bottom:8px}
+  .kicker{font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);margin:0 0 14px}
+  h1{font-size:clamp(28px,6vw,44px);line-height:1.05;margin:0 0 14px;letter-spacing:-.02em}
+  .lede{color:var(--dim);font-size:16px;max-width:64ch;margin:0}
+  .tags{display:flex;flex-wrap:wrap;gap:8px;margin-top:22px}
+  .tag{border:1px solid var(--line);padding:4px 9px;font-size:11px;letter-spacing:.05em;color:var(--dim)}
+  .part{margin:66px 0 0;padding:10px 0 8px;border-top:2px solid var(--fg);
+    font-size:12px;letter-spacing:.22em;text-transform:uppercase;color:var(--accent)}
+  .part b{color:var(--fg)}
+  h2{font-size:13px;letter-spacing:.18em;text-transform:uppercase;margin:44px 0 6px;
+    padding-bottom:8px;border-bottom:1px solid var(--line);color:var(--fg)}
+  .part + h2{margin-top:20px}
+  h2 .n{color:var(--accent);margin-right:10px}
+  p{max-width:70ch}
+  .grid{display:grid;gap:14px}
+  @media(min-width:640px){.two{grid-template-columns:1fr 1fr}.three{grid-template-columns:1fr 1fr 1fr}}
+  .card{background:var(--card);border:1px solid var(--line);padding:16px 18px}
+  .card h3{margin:0 0 6px;font-size:14px}
+  .card p{margin:0;color:var(--dim);font-size:13px}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin:6px 0;display:block;overflow-x:auto}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+  td code{color:var(--accent)}
+  .term{background:#000;color:#d6d6d0;border:1px solid var(--line);padding:16px 18px;
+    font-size:12.5px;line-height:1.5;overflow-x:auto;white-space:pre;margin:10px 0}
+  .term .c{color:#6a6a64}.term .g{color:var(--ok)}.term .r{color:var(--bad);font-weight:700}
+  .term .h{color:#e8e8e6;font-weight:700}
+  .split{display:grid;gap:12px}@media(min-width:640px){.split{grid-template-columns:1fr 1fr}}
+  .verdict{border-left:3px solid var(--accent);padding:6px 0 6px 16px;margin:18px 0;color:var(--fg)}
+  .callout{background:var(--card);border:1px solid var(--accent);padding:16px 18px;margin:16px 0}
+  .callout h3{margin:0 0 8px;font-size:14px;color:var(--accent);letter-spacing:.06em;text-transform:uppercase}
+  .mermaid{background:var(--card);border:1px solid var(--line);padding:18px;margin:14px 0;overflow-x:auto}
+  .embed3d{position:relative;width:100%;aspect-ratio:16/10;border:1px solid var(--line);background:var(--card);margin:14px 0;overflow:hidden}
+  .embed3d iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+  .cap{color:var(--dim);font-size:12px;margin:6px 0 0}
+  .real{color:var(--ok)}.notreal{color:var(--bad)}
+  ul.clean{list-style:none;padding:0;margin:8px 0}
+  ul.clean li{padding:7px 0 7px 22px;position:relative;border-bottom:1px solid var(--line);font-size:14px}
+  ul.clean li::before{content:"→";position:absolute;left:0;color:var(--accent)}
+  .lbl{display:inline-block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:16px 0 2px}
+  footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--line);color:var(--dim);font-size:12px}
+  .muted{color:var(--dim)}
+</style>
+</head>
+<body>
+<div id="doc">
+
+<header>
+  <p class="kicker">Smart Ring Prototype · Nordic nRF54L15</p>
+  <h1>ANDA Smart&nbsp;Ring</h1>
+  <p class="lede">An open-source wearable ring on the Nordic nRF54L15 (Cortex-M33): a <strong>system architecture</strong>, a working <strong>firmware sensor manager</strong>, and a <strong>debugging</strong> methodology.</p>
+  <div class="tags">
+    <span class="tag">① System Architecture</span>
+    <span class="tag">② Firmware Implementation</span>
+    <span class="tag">③ Debugging &amp; Investigation</span>
+    <span class="tag">Boots upstream Zephyr v4.4</span>
+  </div>
+</header>
+
+<h2><span class="n">01</span>Overview — an open smart-ring platform</h2>
+<p>An <strong>open-source smart ring</strong> — a hardware base others build products and studies on. The companion app is built by a separate team; the BLE interface is a hard, versioned boundary.</p>
+
+<p class="lbl">Subsystems on board</p>
+<div class="grid three">
+  <div class="card"><h3>nRF54L15 MCU</h3><p>Cortex-M33 @128 MHz, BLE 5.x, RRAM 1524 KB / RAM 256 KB, RISC-V PPR + FLPR coprocessor.</p></div>
+  <div class="card"><h3>IMU</h3><p>Accel + gyro with a hardware step counter; wake-on-motion gating.</p></div>
+  <div class="card"><h3>PPG heart-rate</h3><p>Optical red/IR photoplethysmography, on-sensor FIFO.</p></div>
+  <div class="card"><h3>Temperature</h3><p>Dedicated skin-contact sensor.</p></div>
+  <div class="card"><h3>Capacitive touch</h3><p>Single electrode on a GPIO line.</p></div>
+  <div class="card"><h3>Haptics + power</h3><p>LRA/ERM vibrator; ~20 mAh Li-Po over contact-pad charging.</p></div>
+</div>
+
+<div class="embed3d">
+  <iframe src="https://app.kernelcad.com/embed/0a-fbk2x" title="nRF54L15 smart ring — interactive 3D model" allowfullscreen=""></iframe>
+</div>
+<p class="cap"><strong>Drag to rotate</strong>, scroll to zoom. Amber flex PCB, sensor chips on a shared I²C bus inside a glass band. Built parametrically in kernelCAD (~US size 10, 2.5 mm wall); footprints at true scale.</p>
+
+<p class="lbl">the chosen parts</p>
+<table>
+  <thead><tr><th>Function</th><th>Part</th><th>Addr</th><th>Why this part</th></tr></thead>
+  <tbody>
+    <tr><td>IMU</td><td><code>BMI270</code></td><td>0x68</td><td>Real wearable IMU - hardware step counter, µA-class.</td></tr>
+    <tr><td>Heart-rate PPG</td><td><code>MAX30102</code></td><td>0x57</td><td>Red/IR PPG, 32-sample FIFO.</td></tr>
+    <tr><td>Skin temp</td><td><code>TMP117</code></td><td>0x48</td><td>On-body sensor, 7.8125 m°C/LSB.</td></tr>
+    <tr><td>Haptic</td><td><code>DRV2605</code></td><td>0x5A</td><td>LRA/ERM motor driver.</td></tr>
+    <tr><td>Touch</td><td><code>GPIO</code></td><td>P1.13</td><td>Single capacitive electrode on a GPIO line.</td></tr></tbody></table>
+
+<p class="part">Part 1 · <b>System Architecture</b></p>
+
+<h2><span class="n">02</span>Firmware architecture</h2>
+<p><strong>RTOS: Zephyr via the nRF Connect SDK.</strong> Maintained BLE controller and nrfx drivers; <code>native_sim</code> runs the app on the host for CI; MCUboot + SMP/mcumgr gives signed DFU out of the box. Six sensor streams + BLE + offline logging + DFU is an RTOS problem — bare-metal wins on RAM but loses at this complexity.</p>
+<div class="grid two">
+  <div class="card"><h3>Portable C11 core</h3><p><em>No Zephyr headers, no <code>malloc</code>.</em> One overwrite-oldest ring per channel, a monotonic 32-bit sequence number per record, a per-channel drop counter.</p></div>
+  <div class="card"><h3>~40-line port layer</h3><p>The entire RTOS dependency: opaque <code>sm_lock_t</code> + <code>sm_time_now()</code> — <code>k_spinlock</code>/uptime on Zephyr, mutex/<code>CLOCK_MONOTONIC</code> on host, making concurrent-drain CI-testable.</p></div>
+  <div class="card"><h3>BLE is a consumer</h3><p>Drivers never call BLE code; the BLE thread bulk-copies N records on a connection event — the <em>radio</em> decides when the radio runs. Kills priority-inversion bugs.</p></div>
+  <div class="card"><h3>PPR split (headline)</h3><p>Run the always-on acquisition loop on the RISC-V <strong>PPR</strong> while the M33 sleeps in System OFF. Cost: cross-core IPC + shared-SRAM coherency. <strong>Open question:</strong> does PPR beat PPI/DMA EasyDMA? A first EVK measurement.</p></div>
+</div>
+<p class="cap">Ring buffers are the only shared state; critical sections are index arithmetic + one <code>memcpy</code>, target &lt; 20 µs hold under the BLE guard time.</p>
+
+<h2><span class="n">03</span>Hardware architecture</h2>
+<p>Rigid-flex PCB: rigid islands (MCU+radio, PPG+optics, battery/charge) wrapped into the band. Every slow sensor hangs off one shared I²C bus (TWIM21); a burst-FIFO sensor moves to SPI. Board area and component <em>height</em> constrain everything.</p>
+<p><strong>The single shared bus is the fragile point</strong> — one wedged device (brownout, ESD, a clock-stretch hang) takes down <em>all</em> sensing, and it's the same root as Issue A. Rev 2 moves the <strong>PPG to its own SPI bus</strong> (isolation + throughput), and firmware adds <strong>I²C bus recovery</strong> (clock-pulse unstick → TWIM reset → per-transaction timeout → re-init) plus <strong>per-sensor power gating</strong>, so a hung device self-heals and is flagged instead of bricking the whole ring.</p>
+
+<div class="mermaid">
+flowchart LR
+  MCU["nRF54L15<br/>Cortex-M33 @128MHz<br/>RRAM 1524KB · RAM 256KB"]
+  subgraph BUS["TWIM21 · I²C @400kHz"]
+    IMU["BMI270 IMU · 0x68<br/>accel/gyro + HW step counter"]
+    PPG["MAX30102 PPG · 0x57<br/>32-deep FIFO @1600Hz"]
+    TMP["TMP117 · 0x48<br/>skin temperature"]
+    HAP["DRV2605 · 0x5A<br/>haptic driver"]
+  end
+  TOUCH["1-ch cap touch<br/>GPIO P1.13"]
+  BLE["BLE 5.x radio<br/>(RF not modelled)"]
+  MCU --- BUS
+  MCU -- GPIO --- TOUCH
+  MCU -. connection events .- BLE
+</div>
+
+<div class="embed3d">
+  <iframe src="https://app.labwired.com/?board=nrf54l15-smart-ring-lab&amp;embed=true&amp;run=1&amp;panel=serial" title="nRF54L15 smart-ring — live LabWired simulation running firmware" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups" allowfullscreen=""></iframe>
+</div>
+<p class="cap">Running live in <a href="https://labwired.com">LabWired</a>: bare-metal firmware on the nRF54L15 probes all four I²C sensors over TWIM21 EasyDMA and prints each identity register to the serial log — BMI270 <code>0x24</code>, MAX30102 <code>0x15</code>, TMP117 <code>0x0117</code>, DRV2605 <code>0xE0</code> — a register-accurate digital twin of the ring's shared sensor bus.</p>
+
+<div class="grid two">
+  <div class="card"><h3>Antenna — the dominant RF problem</h3><p>A finger millimetres away detunes the antenna and eats several dB. Hard keep-out; tune with a <strong>finger phantom</strong>; ceramic chip antenna on curved flex.</p></div>
+  <div class="card"><h3>PPG on its own filtered rail</h3><p>BLE PA transients coupled into a µV photodiode mimic a physiological signal. Separate LDO, star ground; schedule PPG around radio events.</p></div>
+  <div class="card"><h3>Power tree + rail gating</h3><p>nRF internal DC/DC; load switches gate VDD_SENSOR_DIG / VDD_ANALOG / VDD_MOTOR. Three sensors leaking 3 µA in "standby" is 7.5% of the week budget.</p></div>
+  <div class="card"><h3>Thermal — the temp sensor lies</h3><p>It reads a mix of skin, MCU self-heating, PPG LEDs and motor. Isolate it (flex neck, slotted copper); blackout sampling around PPG bursts and haptics. Trustworthy for <em>trends and deltas</em> only.</p></div>
+</div>
+<p class="cap">Also specified: contact-pad charging (TVS + wet-detect), a fuel-gauge IC (~2 µA), every sensor INT on a wake-capable GPIO.</p>
+
+<h2><span class="n">04</span>BLE interface design</h2>
+<p>Standard SIG services plus a custom <strong>Ring Data Service</strong>: a build-time-generated <em>capability descriptor</em>, stream control, notify-based data, config, a control point, log/backfill.</p>
+<p><strong>Batching is the whole design.</strong> Bandwidth is a non-issue (600 B/s); <em>wakeups</em> are what the battery pays for. With DLE and a 247-byte MTU (244 B payload), the encoder packs a 16-byte header + 14-byte IMU records = <strong>16 per notification</strong> — one notify every 320 ms, not 50/s. Batch size <em>derives from the negotiated MTU</em>, asserted in <code>payload_budget_yields_sixteen_imu_samples</code>.</p>
+<table>
+  <thead><tr><th>Mode</th><th>Conn interval</th><th>Latency</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td>Week</td><td>400–1000 ms</td><td>4–10</td><td>Radio nearly idle; seconds of latency, fine for background logging.</td></tr>
+    <tr><td>Research</td><td>15–50 ms</td><td>0</td><td>Low latency, high throughput, ~7× radio energy.</td></tr>
+  </tbody>
+</table>
+<p class="cap">The peripheral <em>requests</em> its parameters (iOS rejects anything outside Apple's guidelines). Security: LESC + bonding, reject legacy pairing, <strong>resolvable private addresses with rotation</strong> (a static MAC is a tracking beacon). Offline logging with backfill-on-reconnect; DFU is MCUboot dual-slot, signed but unlocked with a replaceable key.</p>
+
+<h2><span class="n">05</span>Power management strategy</h2>
+<p>Two budgets against a <strong>20 mAh usable</strong> cell: <strong>~119 µA</strong> for 1 week (168 h) and <strong>~833 µA</strong> for 24 h.</p>
+<div class="callout">
+  <h3>The assumption</h3>
+  <p>20 mAh is optimistic. A public Oura Ring 5 teardown puts its cell at <strong>10.2 mAh</strong>; there the budgets become ~61 µA and ~425 µA, and the week-mode design would deliver <strong>under 4 days</strong>, not 7.7.&nbsp;</p>
+</div>
+<p><strong>PPG dominates.</strong> PPG energy ≈ LED current × pulse width × sample rate, all firmware-controllable across two orders of magnitude. Levers, best first: (1) adaptive sampling gated on the IMU — measure HR only when still; (2) closed-loop LED drive to the minimum current clearing SNR for <em>this</em> finger; (3) duty-cycle the LED. Shaving 5 µA off the CPU is meaningless while PPG spends 400.</p>
+<p class="cap">Mechanism: Zephyr PM, tickless idle, M33 in System OFF + RAM retention, interrupt-driven wakeups aligned to connection events. <strong>Honest result:</strong> estimated research mode is ~878 µA → 22.8 h, missing 24 h by ~5% — fixed by trimming PPG duty or gating the gyro, not claimed until measured.</p>
+
+<h2><span class="n">06</span>Future sensor expansion</h2>
+<p>Sensors register into a static table; the <strong>BLE capability characteristic is generated from it at build time</strong>. Adding a sensor is <em>a table entry plus a driver</em> — the GATT layout doesn't change, the version doesn't bump, the app needs <strong>no coupled release</strong>. It reads the descriptor at connect (<code>sensor_id / record_type / record_size</code>) and renders generically or ignores unknown types — an app built before the sensor existed keeps working.</p>
+<ul class="clean">
+  <li><strong>Bus allocation</strong> — FIFO/burst parts on SPI, ≤ 10 Hz parts on I²C; reserve spare GPIOs and an I²C address block.</li>
+  <li><strong>Devicetree overlays per variant</strong> — the table populates from devicetree, so the image self-describes.</li>
+  <li><strong>Forward-compatible TLV framing</strong> — type-tagged records make unknown types skippable, not fatal; never reuse a tag.</li>
+  <li><strong>Board area is the real limit</strong> — reserve footprints and INT routing now; keep the antenna keep-out sacred.</li>
+</ul>
+
+<h2><span class="n">07</span>Battery-life trade-offs — 24-hour vs 1-week</h2>
+<p>Not two settings of one product — <strong>two products sharing a BOM</strong>. The gap is roughly <strong>7×</strong> in average current, spent almost entirely on PPG and radio duty cycle: data density traded for time.</p>
+
+<table>
+  <thead><tr><th>Dimension</th><th>Week mode</th><th>24-h research mode</th></tr></thead>
+  <tbody>
+    <tr><td>IMU</td><td>WoM-gated, 12.5 Hz, gyro off</td><td>50 Hz continuous, gyro on</td></tr>
+    <tr><td>PPG</td><td>15 s spot-check / 15 min</td><td>Continuous 25–100 Hz</td></tr>
+    <tr><td>Temperature</td><td>1 / min</td><td>1 Hz</td></tr>
+    <tr><td>BLE interval</td><td>400–1000 ms</td><td>15–50 ms</td></tr>
+    <tr><td>Delivery</td><td>Batched, delay-tolerant</td><td>Near-real-time stream</td></tr>
+    <tr><td>Est. average</td><td>~108 µA</td><td>~878 µA</td></tr>
+    <tr><td>Runtime @ 20 mAh</td><td>~7.7 days</td><td>~22.8 h <span class="notreal">(misses target)</span></td></tr>
+    <tr><td>Data yield</td><td>Sparse, trend-quality</td><td>Dense, publication-quality</td></tr>
+  </tbody>
+</table>
+<p class="cap">Ship both as explicit, named modes over the stream-control characteristic. Battery capacity is <em>not</em> the lever (20→25 mAh buys 25%); halving PPG duty buys ~30% of the week budget. Research mode refuses to start below ~40% SoC rather than die mid-study.</p>
+
+<!-- ============================ PART 2 ============================ -->
+<p class="part">Part 2 · <b>Firmware Implementation</b></p>
+
+<h2><span class="n">08</span>The sensor manager</h2>
+<p>A working, tested sensor manager in portable C11 — requirements and where each is met:</p>
+<table>
+  <thead><tr><th>Requirement</th><th>Where</th><th>Test</th></tr></thead>
+  <tbody>
+    <tr><td>IMU @ 50 Hz</td><td><code>sm_rate_t</code></td><td><code>rate_is_drift_free_over_ten_seconds</code></td></tr>
+    <tr><td>Temperature @ 1 Hz</td><td>same</td><td>same</td></tr>
+    <tr><td>Thread-safe ring buffers</td><td><code>sm_ringbuf.c</code> + port</td><td><code>test_concurrency.c</code> (TSan-clean)</td></tr>
+    <tr><td>Retain latest 100 IMU</td><td><code>SM_IMU_CAPACITY</code></td><td><code>imu_retains_latest_100</code></td></tr>
+    <tr><td>Retain latest 20 temp</td><td><code>SM_TEMP_CAPACITY</code></td><td><code>temp_retains_latest_20</code></td></tr>
+    <tr><td>BLE retrieves buffered data</td><td><code>sm_read_*</code> + <code>ble_batch.c</code></td><td><code>test_ble_batch.c</code></td></tr>
+    <tr><td>Graceful overflow</td><td>overwrite-oldest + drop counters</td><td><code>overflow_leaves_a_detectable_sequence_gap</code></td></tr>
+    <tr><td>Unit tests</td><td><code>tests/</code></td><td>4 suites, all green</td></tr>
+  </tbody>
+</table>
+<div class="grid two">
+  <div class="card"><h3>Drift-free rate control</h3><p><code>next_due</code> advances by exact periods — 50 Hz means 500 samples per 10 s <em>forever</em>, not 498 after an hour; a long stall is clamped (<code>SM_RATE_MAX_CATCHUP</code>) and reported in <code>missed_deadlines</code>.</p></div>
+  <div class="card"><h3>Overwrite-oldest, never silent</h3><p>Every record carries a sequence number, every buffer a drop counter, both sent over BLE — the phone quantifies loss, never interpolates.</p></div>
+  <div class="card"><h3>Interrupt-masking, not a mutex</h3><p>The producer is an <strong>ISR</strong> and a mutex deadlocks there — the embedded port masks interrupts (PRIMASK save/restore) so the lock composes in an already-masked region.</p></div>
+  <div class="card"><h3>Bulk drain, not per-sample</h3><p>The BLE layer takes the lock once, copies up to N records in one or two <code>memcpy</code> spans, releases — worst-case hold bounded by bytes moved, sized under the guard time.</p></div>
+</div>
+
+<div class="callout">
+  <h3>Validated on a digital twin</h3>
+  <p>The core sources (<code>sensor_manager.c</code>, <code>sm_ringbuf.c</code>, <code>ble_batch.c</code>) compile <strong>byte-for-byte unmodified</strong> — the same files the host tests build — and run on a <strong>cycle-accurate nRF54L15 simulation</strong> through a real <code>sm_port</code>. The chip model boots <strong>unmodified upstream Zephyr v4.4</strong>, and every sensor (BMI270, MAX30102, TMP117, DRV2605) enumerates by reading its real ID register over I²C. Beyond a clean boot it shows <strong>graceful failure</strong>: phone out of range, the BLE consumer stalls, the ring overflows, the newest 100 are kept, the exact loss reported.</p>
+  <div class="term"><span class="c">--- ring-buffer overflow + recovery (phone out of range) ---</span>
+imu  pushed        : <span class="h">155</span>
+imu  delivered     : <span class="h">135</span>
+imu  dropped       : <span class="r">20</span>   <span class="c">(overwrite-oldest)</span>
+buffered           : <span class="h">100/100</span> <span class="c">(newest retained)</span>
+sequence gap: lost : <span class="r">20</span>
+<span class="g">overflow handled gracefully — loss counted, latest 100 retained.</span></div>
+  <p>The gap is derived from the sequence numbers and independently equals the ring's drop counter — nothing is lost silently. <code>rate_is_drift_free_over_ten_seconds</code> holds against a real 1 MHz hardware counter, not injected virtual time. Host tests: <strong>4 suites clean under ASan / UBSan / TSan</strong>. Source: <a href="https://github.com/w1ne/smart-ring-digital-twin">github.com/w1ne/smart-ring-digital-twin</a>.</p>
+</div>
+<p class="cap muted">Honest note: the run is <em>recorded</em>, not a live in-browser widget — the idle-heavy sim isn't fast enough to run live in a page yet. The 3D model above <em>is</em> live. Firmware runs the real production BOM against register-level sensor models — not silicon.</p>
+
+<!-- ============================ PART 3 ============================ -->
+<p class="part">Part 3 · <b>Debugging &amp; Investigation</b></p>
+<p class="cap" style="margin-top:14px">Method for all three: <em>cheapest-and-most-discriminating experiment first</em>; reproduce deterministically before changing anything; bisect (electrical vs firmware vs algorithmic), one variable at a time. Instrument first, hypothesize second, fix third.</p>
+
+<h2><span class="n">09</span>Issue A — PPG unreliable as BLE throughput rises</h2>
+<p>Something scaling with radio activity is corrupting an analog chain. Three separable classes: <strong>conducted</strong> (power-rail coupling), <strong>radiated</strong> (2.4 GHz rectified in the AFE), <strong>temporal</strong> (CPU/IRQ starvation → FIFO overflow). One test partitions them: replace the radio with an equal CPU busy-load, radio off — persists = temporal, vanishes = electrical.</p>
+
+<div class="callout">
+  <h3>Reproduced on the digital twin</h3>
+  <p>The twin reproduces the <em>digital/timing</em> cause. A BLE connection event is modelled as a periodic SysTick that monopolizes the CPU; the busy CPU can't drain the PPG FIFO, which fills on its own clock and overflows. One flag flips PPG FIFO overflow from <strong>0 → 31 (saturated)</strong>.</p>
+</div>
+
+<div class="mermaid">
+sequenceDiagram
+  participant PPG as MAX30102 FIFO (1600Hz)
+  participant CPU as Firmware drain loop
+  participant BLE as BLE conn-event (SysTick)
+  Note over PPG,CPU: BLE OFF — CPU always free
+  loop every few ms
+    CPU->>PPG: drain all pending
+    Note right of PPG: FIFO stays empty · 0 lost
+  end
+  Note over PPG,BLE: BLE ON — event every 30ms
+  BLE->>CPU: connection event (busy 25ms)
+  Note right of CPU: cannot drain for 25ms
+  PPG-->>PPG: fills past 32 (fills in ~20ms)
+  CPU->>PPG: drains late
+  Note right of PPG: OVF_COUNTER ↑ · samples LOST
+</div>
+
+<div class="split">
+  <div>
+    <p class="muted" style="margin:0 0 4px">PASS 1 — BLE OFF</p>
+    <div class="term"><span class="c">--- BLE off (CPU free to drain) ---</span>
+imu  pushed        : <span class="h">30</span>
+ppg  drained (==produced): <span class="h">960</span>
+ppg  lost to overflow: <span class="g">0</span></div>
+  </div>
+  <div>
+    <p class="muted" style="margin:0 0 4px">PASS 2 — BLE ON</p>
+    <div class="term"><span class="c">--- BLE on (SysTick steals CPU) ---</span>
+imu  pushed        : <span class="h">30</span>
+ble  events        : <span class="h">20</span>
+ppg  lost to overflow: <span class="r">31</span> <span class="c">(saturated)</span></div>
+  </div>
+</div>
+<p class="verdict"><strong>Same firmware. Same models. One flag.</strong> PPG samples are lost <em>only</em> under BLE load. <code>drained == produced</code> (1600 Hz × 0.6 s = 960) proves the sensor clock tracks real time. <strong>Honest boundary:</strong> the twin models the digital cause (CPU starvation → FIFO overflow), <span class="notreal">not</span> the analog one — radio-TX spikes into the PPG front end, which a digital simulator can't represent.</p>
+
+<p class="lbl">Tools</p>
+<p>Scope AC-coupled on the analog rail; H-field probe for RF; PPK II for burst current; Saleae + GPIOs in the PPG ISR and at radio-active; SystemView for IRQ timing; <strong>RTT logging, never UART</strong> (UART perturbs the timing under test); a BLE sniffer to phase-lock corruption to on-air events.</p>
+<p class="lbl">Design changes</p>
+<ul class="clean">
+  <li><strong>Dedicated filtered analog rail + LDO</strong> for the AFE — PSRR checked at ~kHz, not the datasheet's 1 kHz headline.</li>
+  <li><strong>PPG on dedicated SPI with DMA + FIFO-watermark burst reads</strong>, so acquisition stops depending on the CPU.</li>
+  <li><strong>Run acquisition on the RISC-V PPR with hardware timestamps</strong> (or timer-capture on DRDY); reject high-jitter samples over a confidently wrong HR.</li>
+</ul>
+
+<h2><span class="n">10</span>Issue B — battery life ~40% below expectation</h2>
+<p>"40% low" means nothing unless "expected" was measured. The expectation is a ~119 µA spreadsheet of guessed duty cycles and datasheet typicals. <strong>First suspect: the model</strong> — an afternoon to audit, often the actual bug. 40% is also suspiciously close to "one subsystem you forgot."</p>
+<p class="lbl">Likely root causes</p>
+<ul class="clean">
+  <li><strong>B1</strong> MCU never reaches budgeted deep-sleep — peripheral still clocked, HFCLK never released, or <em>a debugger left attached</em> (the classic false alarm).</li>
+  <li><strong>B2</strong> Sensor in standby-not-shutdown, a rail never gated, or an ESD-diode back-powering a gated-off rail.</li>
+  <li><strong>B3</strong> Negotiated BLE interval ≠ requested — the phone applies its own policy; excess wakeups / per-sample notifications.</li>
+  <li><strong>B4</strong> The battery — overstated capacity, high ESR, protection-IC quiescent, aging.</li>
+</ul>
+<p><strong>Debugging:</strong> incremental attribution, not the total. Detach the debugger, measure a bare-board floor, then add one subsystem at a time — clocks, each sensor, advertising, connected, full app — each <em>delta</em> against its model line. Average over a full duty cycle (a once-a-minute 20 mA burst hides in a 100 ms snapshot). Read the negotiated interval on air; validate the cell on a cycler.</p>
+<p class="lbl">Tools</p>
+<p>PPK II or Joulescope/SMU for long µA-resolution captures, GPIO markers, Zephyr <code>pm_state</code> residency counters, a BLE sniffer, a battery cycler.</p>
+<p class="lbl">Design changes</p>
+<ul class="clean">
+  <li><strong>GPIO state audit + load-switch rail gating as an automated test</strong> — every pin in its intended state per mode, bus pins driven low before gating to close the ESD-diode path.</li>
+  <li><strong>Power-state residency counters reported over BLE</strong> — turns Issue B from a lab problem into a fleet statistic.</li>
+  <li><strong>A CI power regression test on real hardware with a PPK</strong> — the actual fix; fails the build when the sleep floor or cycle-average exceeds a threshold. Add shunts / 0 Ω rail-cut links so any rail is measurable in isolation.</li>
+</ul>
+
+<h2><span class="n">11</span>Issue C — 12% first-pass manufacturing failure</h2>
+<p>12% is meaningless until decomposed: one mode at 11% is a fixable defect; twelve at 1% each is a design-margin problem. <strong>First — Pareto</strong> the failures by step, station, shift, panel position, and lot; usually collapses the problem an order of magnitude. <strong>Second — the crucial split: bad product or bad test?</strong> Retest every failure; if a meaningful fraction passes, suspect the fixture. A Gage R&amp;R quantifies it — a known-good unit failing 5% of the time is most of your 12%.</p>
+<p class="lbl">Likely root causes</p>
+<ul class="clean">
+  <li><strong>C1</strong> Fixture/pogo-pin contact, or tester firmware/timing marginality.</li>
+  <li><strong>C2</strong> Unshielded RF test near factory Wi-Fi — the leading test-side suspect for a 2.4 GHz product.</li>
+  <li><strong>C3</strong> Limits set by wish not process spread, Cpk &lt; 1.33.</li>
+  <li><strong>C4</strong> Solder defects (tombstoning, head-in-pillow under the CSP), flex-bonding on a curved substrate, or antenna detuning after final assembly.</li>
+</ul>
+<p><strong>Debugging:</strong> <strong>get parametric data, not pass/fail</strong> — the highest-leverage change. A measured value per step per serial catches a distribution drifting toward a limit, separates a margin tail from a defect population, and makes Cpk computable; if the station isn't logging it against serials, fix that first. Then physical FA (X-ray, cross-section, AOI), and check whether failures cluster in time (process shift) or are uniform (design margin).</p>
+<p class="lbl">Tools</p>
+<p>X-ray / cross-sectioning, AOI/AXI data, a shielded RF chamber, boundary-scan/SWD structural test, a parametric-histogram-per-step dashboard, DOE once a candidate cause is found.</p>
+<p class="lbl">Design changes</p>
+<ul class="clean">
+  <li><strong>DFT/DFM + serial-number traceability</strong> — test points and a parametric BIST over SWD, tracked panel → final assembly.</li>
+  <li><strong>Guard-banded limits from measured Cpk</strong>, and <strong>shielded RF test</strong> (non-negotiable at 2.4 GHz in a factory).</li>
+  <li><strong>Staged testing</strong> — test the bare board first; a defect reaching final test costs ~10× one caught at board test.</li>
+</ul>
+
+<h2><span class="n">12</span>Assumptions, risks &amp; unknowns</h2>
+<p>The load-bearing ones:</p>
+<div class="grid two">
+  <div class="card"><h3>Assumptions</h3><p><strong>A1</strong> 20 mAh usable cell — likely optimistic (Oura 5 ≈ 10.2 mAh); budgets scale linearly and week mode could fall under 4 days. <strong>A2</strong> all currents are estimates — datasheets can move any line ±3×. <strong>A3</strong> PPG is the dominant consumer. <strong>A4</strong> the app team accepts a capability-descriptor contract. <strong>A5</strong> ~1.5 MB RRAM suffices for offline logging. <strong>A6</strong> the internal DC/DC needs no external buck.</p></div>
+  <div class="card"><h3>Top risks</h3><p><strong>High:</strong> antenna detuned by the finger → poor range (finger-phantom tuning from day one); research mode misses 24 h; skin temp corrupted by self-heating; PPG motion artifact during activity. <strong>Medium:</strong> PPR/M33 shared-memory corruption on version skew (layout-hash gate); motor transients browning out PPG; iOS/Android parameter divergence; charge-pad corrosion/ESD.</p></div>
+</div>
+<p class="lbl">Unknowns — and how I'd resolve each</p>
+<ul class="clean">
+  <li>Does PPR actually beat PPI + DMA on the M33? Instrument both with a PPK II under identical load; decide on the mAh. <em>Gates the §1.3 split.</em></li>
+  <li>Real PPG energy per measurement at the SNR needed, across skin tones — decides whether either budget is achievable.</li>
+  <li>Cold-start vs standby crossover per rail-gated sensor; actual regulator/leakage quiescent on assembled hardware (can be 3× a guess).</li>
+  <li>RRAM left after Zephyr + BLE + MCUboot dual-slot, hence whether offline logging needs external flash; lock-hold vs BLE guard time.</li>
+</ul>
+
+<footer>
+  <p>Firmware, tests and the twin harness: <a href="https://github.com/w1ne/smart-ring-digital-twin">github.com/w1ne/smart-ring-digital-twin</a>.
+  The twin runs on <a href="https://github.com/w1ne/labwired-core">labwired-core</a> — a deterministic firmware simulator used as a hardware oracle.
+  nRF54L15 chip profile + sensor models: <a href="https://github.com/w1ne/labwired-core/pull/598">labwired-core #598</a>.</p>
+  <p class="muted">Cycle-accurate ≠ silicon-verified. Every value here is a datasheet-derived behavioural model, not yet diffed against a real nRF54L15 over SWD — honest about its boundaries.</p>
+</footer>
+</div><!-- /#doc -->
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+
+  // Snapshot each diagram's source BEFORE rendering, so the editor's Export can
+  // write the original mermaid text back out instead of a baked SVG.
+  document.querySelectorAll(".mermaid").forEach(el => {
+    if (!el.dataset.src) el.dataset.src = el.textContent.trim();
+  });
+
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({
+    startOnLoad:false,
+    theme:"base",
+    themeVariables:{
+      fontFamily:'SFMono-Regular,ui-monospace,Menlo,monospace',
+      primaryColor: dark ? "#151517" : "#ffffff",
+      primaryTextColor: dark ? "#e8e8e6" : "#161616",
+      primaryBorderColor:"#ff5c37",
+      lineColor: dark ? "#6a6a64" : "#9a9a94",
+      secondaryColor: dark ? "#1d1d20" : "#f0f0ec",
+      tertiaryColor: dark ? "#0d0d0f" : "#f7f7f4"
+    }
+  });
+
+  // ── In-browser editor — open the page with ?edit=1 ─────────────────────────
+  // Click any text to edit it. Edits auto-save in THIS browser (localStorage);
+  // "Export" downloads the edited index.html to commit. Reviewers visiting the
+  // plain URL get a clean, non-editable page.
+  const doc = document.getElementById("doc");
+  const editing = new URLSearchParams(location.search).has("edit");
+  const KEY = "ring-edits-v1";
+
+  if (editing) {
+    const saved = localStorage.getItem(KEY);
+    if (saved) doc.innerHTML = saved;   // restore prior edits (diagrams included)
+  }
+
+  await mermaid.run({ nodes: [...document.querySelectorAll(".mermaid:not([data-processed])")] });
+
+  function exportHtml() {
+    const clone = document.documentElement.cloneNode(true);
+    clone.querySelectorAll(".editor-chrome").forEach(e => e.remove());
+    clone.querySelectorAll("[contenteditable]").forEach(e => e.removeAttribute("contenteditable"));
+    // Rendered diagram → original mermaid source, so the exported file re-renders cleanly.
+    clone.querySelectorAll(".mermaid").forEach(el => {
+      if (el.dataset.src) {
+        el.textContent = el.dataset.src;
+        el.removeAttribute("data-processed");
+        el.removeAttribute("data-src");
+        el.removeAttribute("style");
+      }
+    });
+    const html = "<!DOCTYPE html>\n" + clone.outerHTML;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+    a.download = "index.html";
+    a.click();
+  }
+
+  if (editing) {
+    doc.setAttribute("contenteditable", "true");
+    doc.style.outline = "none";
+    doc.addEventListener("input", () => localStorage.setItem(KEY, doc.innerHTML));
+
+    const btn = (label, fn) => {
+      const b = document.createElement("button");
+      b.textContent = label;
+      b.style.cssText = "background:#ff5c37;color:#111;border:0;padding:8px 12px;cursor:pointer;font:12px/1 SFMono-Regular,ui-monospace,monospace;letter-spacing:.04em";
+      b.onclick = fn;
+      return b;
+    };
+    const bar = document.createElement("div");
+    bar.className = "editor-chrome";
+    bar.style.cssText = "position:fixed;top:10px;right:10px;z-index:9999;display:flex;gap:6px";
+    bar.append(
+      btn("⤓ Export index.html", exportHtml),
+      btn("↺ Reset", () => { localStorage.removeItem(KEY); location.reload(); })
+    );
+    const hint = document.createElement("div");
+    hint.className = "editor-chrome";
+    hint.textContent = "EDIT MODE · click any text to edit · Export when done";
+    hint.style.cssText = "position:fixed;bottom:10px;left:10px;z-index:9999;background:#151517;color:#9a9a94;border:1px solid #2a2a2e;padding:7px 11px;font:11px/1.3 SFMono-Regular,ui-monospace,monospace";
+    document.body.append(bar, hint);
+  }
+</script>
+</body>
+</html>

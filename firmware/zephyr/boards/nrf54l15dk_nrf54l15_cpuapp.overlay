@@ -1,0 +1,38 @@
+/*
+ * Smart-ring sensor bus. The four sensors share TWIM21 (Zephyr node i2c21),
+ * which is the instance LabWired's smart-ring system models as "twi21":
+ *
+ *   BMI270  IMU     0x68     MAX30102 PPG     0x57
+ *   TMP117  temp    0x48     DRV2605  haptic  0x5A
+ *
+ * Addresses live in sensors.c (the app uses the raw I2C API against the bus
+ * controller, not per-sensor drivers), so this overlay only has to bring the
+ * bus up and give it pins.
+ */
+
+&pinctrl {
+	i2c21_default: i2c21_default {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SCL, 1, 2)>,
+				<NRF_PSEL(TWIM_SDA, 1, 3)>;
+			bias-pull-up;
+		};
+	};
+
+	i2c21_sleep: i2c21_sleep {
+		group1 {
+			psels = <NRF_PSEL(TWIM_SCL, 1, 2)>,
+				<NRF_PSEL(TWIM_SDA, 1, 3)>;
+			low-power-enable;
+		};
+	};
+};
+
+&i2c21 {
+	compatible = "nordic,nrf-twim";
+	status = "okay";
+	clock-frequency = <I2C_BITRATE_FAST>;
+	pinctrl-0 = <&i2c21_default>;
+	pinctrl-1 = <&i2c21_sleep>;
+	pinctrl-names = "default", "sleep";
+};

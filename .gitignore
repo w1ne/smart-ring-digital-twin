@@ -1,0 +1,9 @@
+.DS_Store
+build-san/
+build/
+compile_commands.json
+firmware/nrf54l15/build/
+
+
+# Local LabWired circuit bundle — embed uses the hosted app.labwired.com share, never commit the bundle
+circuit/
