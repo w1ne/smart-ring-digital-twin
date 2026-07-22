@@ -1,25 +1,28 @@
 # Part 3 — Debugging Three Field Issues
 
-**Method note, applied to all three issues.** I order investigation by *cheapest-and-most-discriminating first*, not by most-likely. A cheap experiment that can kill three hypotheses at once beats an expensive one that confirms the favourite. Every hypothesis below is paired with a predicted signature — what I would specifically see if it were true — and an experiment capable of *falsifying* it. An experiment that is merely consistent with a hypothesis is not evidence; it is comfort.
+**Method note, applied to all three issues.** 
+I order investigation by *cheapest-and-most-discriminating first*. 
+A cheap experiment that can kill three hypotheses at once beats an expensive one that confirms the favourite. 
+Every hypothesis is paired with a predicted outcome, what I would specifically see if it were true.
 
-Second rule: **reproduce deterministically before changing anything.** A fix applied without a confirmed reproduction is a guess with a commit hash. Intermittent wearable bugs are where teams burn the most time, precisely because the failure disappears while you are "fixing" it and you credit the fix. If I cannot make the bug appear on demand, my first task is building the rig that makes it appear on demand — not writing code.
+Second rule: **reproduce deterministically before changing anything.** A fix applied without a confirmed reproduction is a guess.
 
-Third rule: **bisect the problem space** — electrical vs firmware vs algorithmic — and change one variable at a time. Most of the experiments below are chosen because they cut the space in half rather than because they test the leading theory.
-
-Assumptions stated inline where they matter. I do not have the field data, the test logs, or the board, so several sections say plainly what I would pull first and what I cannot conclude without it.
+Third rule: **bisect the problem space** - electrical vs firmware vs algorithmic - and change one variable at a time.
 
 ---
 
-## Issue A — PPG becomes unreliable when BLE throughput increases
+## Issue A - PPG becomes unreliable when BLE throughput increases
 
-The correlation with throughput is the strongest clue available: something that scales with radio activity is corrupting an analog acquisition chain. That leaves conducted (power), radiated (RF), or temporal (CPU/bus/IRQ) coupling. Those three are separable with cheap experiments, so I separate them before touching a line of firmware.
+The correlation with throughput is the strongest clue: 
+something that scales with radio activity is corrupting an analog acquisition. 
+That leaves power, radiated, or time (CPU/bus/IRQ) coupling. Those three are separable with cheap experiments.
 
 ### Hypothesis matrix
 
-| # | Hypothesis | Predicted signature if true | Cheapest discriminating experiment |
+| # | Hypothesis | Prediction if true | Cheapest experiment |
 |---|---|---|---|
-| A1 | **Power-rail coupling.** BLE TX bursts (≈5–15 mA, ~1 ms slots) sag a rail shared with the PPG AFE/LED driver; ripple lands in the photodiode signal band | Noise present with **LEDs off / photodiode dark**; ripple bursts on the analog rail time-aligned to connection events; amplitude scales with TX power, not with packet count | Power the PPG AFE from a **clean bench supply**, cut the shared rail. If the problem vanishes → conducted coupling. Highest-information single test in this list |
-| A2 | **Bus contention / FIFO timing.** PPG FIFO reads on a shared I²C/SPI bus are delayed by BLE work; FIFO overflows or sample timestamps jitter | Sample-arrival jitter histogram bimodal, peaks at BLE connection-interval offsets; FIFO overflow/watermark flags set; noise appears in the *frequency* domain even though raw sample values look sane | Log sample-arrival timestamps + FIFO status; correlate jitter against connection-event timing (sniffer or a GPIO toggled at radio-active) |
+| A1 | **Power-rail coupling.** BLE TX bursts (≈5–15 mA, ~1 ms slots) sag a rail shared with the PPG AFE/LED driver; | Noise present with **LEDs off / photodiode dark**; ripple bursts on the analog rail time-aligned to connection events; amplitude scales with TX power | Power the PPG AFE from a **clean bench supply**, cut the shared rail. If the problem vanishes → conducted coupling. Highest-information single test|
+| A2 | **Bus contention / FIFO timing.** PPG FIFO reads on a shared I²C/SPI bus are delayed by BLE work; FIFO overflows or sample timestamps jitter | Sample-arrival jitter histogram, peaks at BLE connection-interval; FIFO overflow/watermark flags set; noise appears in the *frequency* domain even though raw sample values look sane | Log sample-arrival timestamps + FIFO status; sniffer or a GPIO toggled at radio-active |
 | A3 | **CPU starvation / priority inversion.** BLE host+controller preempt the PPG processing thread; deadlines missed | Thread-level: PPG thread runtime shifts late by ~ the radio slot; SystemView shows preemption immediately before each corrupted block | Replace the radio with an **equivalent CPU busy-load** at the same duty cycle, radio off. If corruption persists → CPU/bus, not RF/power. This one test kills A1, A4, A5 or kills A2/A3 |
 | A4 | **Interrupt latency.** Long critical sections in the controller delay the PPG DRDY IRQ | GPIO-in-ISR trace shows DRDY→ISR-entry latency spikes of tens of µs aligned to radio windows; jitter, not loss | Toggle a GPIO in the DRDY ISR, capture DRDY line and GPIO on a logic analyzer, histogram the delta |
 | A5 | **RF / EMI rectification.** 2.4 GHz energy rectified in the AFE input or antenna coupling into the PPG flex | Noise persists on bench supply (kills A1) *and* persists with dark photodiode, *and* scales with **TX power** but not with number of transmissions | Vary **TX power** and **PHY (1M vs 2M)** independently of throughput. Energy-per-TX vs number-of-wakeups separate cleanly here |
