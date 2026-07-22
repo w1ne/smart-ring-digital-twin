@@ -1,4 +1,7 @@
-# Part 3 — Debugging Three Field Issues
+
+**Make the system measurable first; then the root cause is usually obvious.**
+
+# Part 3. Debugging Field Issues
 
 ## Method (all three)
 
@@ -20,16 +23,16 @@ Those three are separable with cheap tests.
 |---|---|---|---|
 | A1 | **Shared power rail** sag on BLE TX | Noise with LEDs off; rail ripple at connection events | Power PPG from a **bench supply**; if fixed → conducted coupling |
 | A2 | **Bus / FIFO timing** delayed by BLE | Jitter peaks at conn interval; FIFO overflow flags | Log sample timestamps + FIFO status; GPIO on radio-active |
-| A3 | **CPU starvation** (BLE preempts PPG) | PPG thread late during radio slots | Replace radio with **CPU busy-loop**, radio off. Still broken → CPU/bus, not RF/power |
+| A3 | **CPU starvation** (BLE preempts PPG) | PPG thread late during radio slots | Replace radio with **CPU busy-loop**, radio off. Still broken → CPU/bus |
 | A4 | **IRQ latency** (long critical sections) | DRDY→ISR delay spikes at radio windows | GPIO in DRDY ISR + logic analyzer |
 | A5 | **RF / EMI** into AFE or flex | Survives bench supply + dark PD; scales with **TX power** more than packet rate | Sweep TX power and PHY (1M vs 2M) independently |
-| A6 | **Thermal** from sustained TX | Slow baseline drift, not event-locked | Log temp + PPG DC while stepping radio load |
+| A6 | **Thermal** from sustained TX | Slow baseline drift| Log temp + PPG DC while stepping radio load |
 
 ### Process
 
-1. **Fixed repro:** BLE load ladder (idle → short interval → max notify), fixed PPG rate, **optical phantom** (not a live finger). Metrics: SNR + sample loss/jitter. Need monotonic degradation vs throughput.
+1. **Fixed repro:** BLE load ladder (idle → short interval → max notify), fixed PPG rate, **optical phantom, niot live finger**. Metrics: SNR + sample loss/jitter. Need monotonic degradation vs throughput.
 2. **Partition:** A3 (busy-loop) + A1 (bench supply) → electrical vs time vs RF.
-3. **Dark reading:** LEDs off, max BLE. Non-zero “signal” = electrical, not optical/algorithm.
+3. **Dark reading:** LEDs off, max BLE. Non-zero “signal” = electrical.
 4. **Time correlation:** PPG timestamps vs sniffer connection events. Phase-lock to radio anchors = proof; “worse when busy” alone is weak.
 5. **Algorithm last.** Jittered timestamps look like noise to HR estimators. Don’t blame the algo until the time base is clean.
 
@@ -48,7 +51,7 @@ Scope on analog rail (**AC couple, mV/div** , DC at 1 V/div misses bursts), PPK 
 
 ## Issue B. Battery life ~40% below expectation
 
-**First question:** was “expected” measured, or a spreadsheet? Spreadsheets use guessed duty cycles and “typical @ 25 °C” numbers. **Audit the model first** — often that *is* the bug. 40% also looks like “one forgotten subsystem” or “conn interval not what you asked for.”
+**First question:** was “expected” measured, or a spreadsheet? Spreadsheets use guessed duty cycles and “typical @ 25 °C” numbers. **Audit the model first** often that *is* the bug. 40% also looks like “one forgotten subsystem”;
 
 ### Likely causes
 
@@ -114,22 +117,20 @@ No engineering fix before the failure breakdown.
 
 ### Process
 
-1. Log **measured values per step per serial**, not pass/fail only  
-2. Histograms + limits → margin vs separate defect population  
+1. Log **measured values per step per serial**
+2. Histograms + limits → margin vs separate defect  
 3. Physical FA on a fail sample (X-ray, cross-section, AOI)  
 4. Time-clustered fails → process; uniform fails → design margin  
 
 ### Tools
-X-ray/cross-section, AOI, shield box / RF chamber, SWD/BIST structural test, simple parametric dashboard, DOE once a cause is candidate.
+X-ray/cross-section, AOI, shield box / RF chamber, SWD/BIST structural test, simple parametric dashboard.
 
 ### Design changes
 - **DFT:** rail test points; firmware **self-test** that returns parametric sensor values over SWD  
 - **Serial traceability** panel → final  
-- Limits from measured Cpk, not wish lists  
+- Limits from measured Cpk
 - **Shielded RF test** for any 2.4 GHz product  
 - **Staged test:** bare board before battery/enclosure (cheaper fails earlier)  
 - Fewer hand steps; more mechanical margin on antenna and flex  
 
 ---
-
-**Make the system measurable first; then the root cause is usually obvious.**
