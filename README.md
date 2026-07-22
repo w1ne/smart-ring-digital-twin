@@ -1,9 +1,9 @@
-# Smart Ring Platform — Embedded Systems Assessment
-
-An open-source smart-ring platform on the Nordic **nRF54L15** (Cortex-M33):
+# Smart Ring Platform, homework
+An open-source smart-ring platform on the Nordic **nRF54L15**:
 system architecture, a portable C11 sensor manager, and a debugging methodology.
-
+See
 **Live write-up (interactive 3D + diagrams): https://w1ne.github.io/smart-ring-digital-twin/**
+for demos
 
 ## Deliverables
 
@@ -40,7 +40,7 @@ cmake --build build-san -j
 ctest --test-dir build-san --output-on-failure
 ```
 
-Under Zephyr (Ztest — the framework going forward), the same 43 cases run on `native_sim`
+Under Zephyr (Ztest), the same 43 cases run on `native_sim`
 and on-target via Twister; the host+TSan build above is kept for race detection:
 
 ```sh
@@ -71,6 +71,4 @@ docs/               Part 1 (architecture) and Part 3 (debugging)
 
 ## Scope
 
-Runs on host and on a simulated nRF54L15. Power figures in
-Part 1 are estimates (first hardware task: a PPK II capture). `firmware/` is separable:
-delete it and every requirement is still met by `src/`, `tests/`, `app/`, `docs/`.
+Runs on host and on a simulated nRF54L15.
