@@ -54,7 +54,7 @@ west build -b native_sim tests/ztest -t run
 ## Layout
 
 ```
-src/                sensor manager — ring buffers, rate control, retention, stats,
+src/                sensor manager, ring buffers, rate control, retention, stats,
                     BLE batch encoder; port layer (posix / single-thread / zephyr sketch)
 app/                demo: acquisition thread + BLE consumer thread
 tests/              43 cases, 4 suites (host ctest + TSan); tests/ztest/ = Zephyr Ztest
