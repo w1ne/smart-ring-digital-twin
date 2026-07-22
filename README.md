@@ -1,8 +1,12 @@
 # Smart Ring Platform, homework
 An open-source smart-ring platform on the Nordic **nRF54L15**:
+
 system architecture, a portable C11 sensor manager, and a debugging methodology.
+
 See
+
 **Live write-up (interactive 3D + diagrams): https://w1ne.github.io/smart-ring-digital-twin/**
+
 for demos
 
 ## Deliverables
