@@ -62,7 +62,7 @@ firmware/nrf54l15/  the same src/ core cross-compiled onto a simulated nRF54L15
 docs/               Part 1 (architecture) and Part 3 (debugging)
 ```
 
-## Requirements coverage
+## Requirements
 
 | Requirement | Implementation | Test |
 |---|---|---|
@@ -72,7 +72,3 @@ docs/               Part 1 (architecture) and Part 3 (debugging)
 | BLE retrieves buffered data | `sm_read`/`sm_peek` + `ble_batch` | `test_ble_batch` |
 | Graceful overflow | overwrite-oldest + drop counter + sequence gap | `overflow_leaves_a_detectable_sequence_gap` |
 | Unit tests | `tests/` | 4 suites, all green |
-
-## Scope
-
-Runs on host and on a simulated nRF54L15.
