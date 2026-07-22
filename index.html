@@ -79,17 +79,17 @@
 <header>
   <p class="kicker">Nordic nRF54L15 · open smart ring</p>
   <h1>Smart Ring Assessment</h1>
-  <p class="lede">Architecture, a working portable sensor manager, and how I'd debug three field failures. App team is separate - BLE is a hard contract.</p>
+  <p class="lede">Architecture, a working portable sensor manager, and how I'd debug three field failures.</p>
   <div class="tags">
     <span class="tag">① Architecture</span>
     <span class="tag">② Firmware</span>
     <span class="tag">③ Debugging</span>
-    <span class="tag">Full write-up in docs/</span>
   </div>
 </header>
 
 <h2><span class="n">01</span>Product scope</h2>
-<p>Next-revision open-source ring. Power numbers are <strong>estimates</strong> - measure on hardware before trusting them.</p>
+<p>Next-revision open-source ring.</p>
+<p>Power numbers are <strong>estimates</strong> - measure on hardware before trusting them.</p>
 <table>
   <thead><tr><th>Item</th><th>Choice</th></tr></thead>
   <tbody>
@@ -120,7 +120,7 @@
 <p class="part">Part 1 · <b>System Architecture</b></p>
 
 <h2><span class="n">02</span>Firmware</h2>
-<p><strong>RTOS: Zephyr + nRF Connect SDK</strong> - BLE stack, DT variants, host CI (<code>native_sim</code>), MCUboot DFU.</p>
+<p><strong>Zephyr + nRF Connect SDK,</strong> BLE stack, DT variants, host CI (<code>native_sim</code>), MCUboot DFU.</p>
 <div class="grid two">
   <div class="card"><h3>Portable C11 core</h3><p>No Zephyr types, no <code>malloc</code>. Ring buffers, sequence numbers, drop counts. Full → overwrite oldest.</p></div>
   <div class="card"><h3>Thin port</h3><p>~40 lines: lock + monotonic time. Host-testable under sanitizers.</p></div>
@@ -129,7 +129,9 @@
 </div>
 
 <h2><span class="n">03</span>Hardware</h2>
-<p>Rigid-flex islands (MCU/radio, PPG, battery). Height matters. <strong>One shared I²C is fragile</strong> - hung slave kills all sensing. Rev plan: PPG on its own SPI; I²C recovery + per-sensor power gate.</p>
+<p>Rigid-flex islands (MCU/radio, PPG, battery).</p>
+<p><strong>One shared I²C is fragile,</strong> hung slave kills all sensing.</p>
+<p>Rev plan: PPG on its own SPI; I²C recovery + per-sensor power gate.</p>
 
 <div class="mermaid">
 flowchart LR
@@ -156,20 +158,19 @@ flowchart LR
   <div class="card"><h3>Antenna</h3><p>Finger detunes RF. Keep-out; tune on finger phantom, not free space only.</p></div>
   <div class="card"><h3>PPG rail</h3><p>Own filtered analog supply. BLE TX noise must not look like pulse.</p></div>
   <div class="card"><h3>Rail gating</h3><p>Switch digital / analog / motor rails. Standby µA add up on a week budget.</p></div>
-  <div class="card"><h3>Temp honesty</h3><p>Reads skin + self-heat. Use for <em>trends</em>, not core body temp.</p></div>
+  <div class="card"><h3>Temperature</h3><p>Reads skin + self-heat. Use for <em>trends</em>, not core body temp.</p></div>
 </div>
 
 <h2><span class="n">04</span>BLE</h2>
 <p>SIG Device Info + Battery + Time. Custom <strong>Ring Data</strong>: capability, stream control, data notify, config, control point, backfill.</p>
-<p><strong>Batch, don't spam.</strong> 50 Hz is easy bandwidth; wakeups kill the cell. Fill negotiated MTU (~16 IMU samples / notify). Derive batch size from MTU (iOS ≠ Android).</p>
+<p><strong>Batch.</strong> 50 Hz is easy bandwidth; wakeups kill the cell. Fill negotiated MTU (~16 IMU samples / notify). Derive batch size from MTU (iOS ≠ Android).</p>
 <table>
   <thead><tr><th>Mode</th><th>Conn interval</th><th>Intent</th></tr></thead>
   <tbody>
-    <tr><td>Week</td><td>400–1000 ms</td><td>Background log, low radio duty</td></tr>
-    <tr><td>Research</td><td>15–50 ms</td><td>Live stream, ~7× radio energy</td></tr>
+    <tr><td>Week</td><td>400..1000 ms</td><td>Background log, low radio duty</td></tr>
+    <tr><td>Research</td><td>15..50 ms</td><td>Live stream, ~7× radio energy</td></tr>
   </tbody>
 </table>
-<p class="cap">Peripheral requests params. LESC + rotating private address. Offline log + backfill. Signed dual-slot DFU.</p>
 
 <h2><span class="n">05</span>Power</h2>
 <table>
@@ -181,12 +182,12 @@ flowchart LR
 </table>
 <div class="callout">
   <h3>Cell size first</h3>
-  <p>Shipping rings often use ~10 mAh. Then week budget ~61 µA and a ~108 µA design lasts <strong>&lt; 4 days</strong>. Measure the cell before promising a week.</p>
+  <p>Rings often use ~10 mAh. Then week budget ~61 µA and a ~108 µA design lasts <strong>&lt; 4 days</strong>. Measure the cell before promising a week.</p>
 </div>
 <p><strong>PPG LEDs dominate.</strong> Cut duty first: sample when still, min LED for SNR, shorter pulses. Then batch BLE. MCU micro-opts last.</p>
-<p class="cap">Rough research mode ~878 µA → ~22.8 h - <span class="notreal">misses 24 h by ~5%</span> on estimate. Trim PPG / gyro before claiming.</p>
+<p class="cap">Rough research mode ~878 µA → ~22.8 h - <span class="notreal">misses 24 h by ~5%</span> on estimate.</p>
 
-<h2><span class="n">06</span>Expansion &amp; modes</h2>
+<h2><span class="n">06</span>Expansion AND modes</h2>
 <p>Sensors in a static table → BLE <strong>capability</strong> at build time. New sensor = table row + driver; old apps ignore unknown types.</p>
 <table>
   <thead><tr><th></th><th>Week</th><th>Research</th></tr></thead>
@@ -196,12 +197,11 @@ flowchart LR
     <tr><td>Est. @ 20 mAh</td><td>~7.7 days</td><td>~22.8 h (short)</td></tr>
   </tbody>
 </table>
-<p class="cap">Named modes, not a vague “battery saver.” Duty cycle beats a slightly bigger cell. Refuse research mode if SoC too low.</p>
 
 <p class="part">Part 2 · <b>Firmware Implementation</b></p>
 
 <h2><span class="n">07</span>Sensor manager</h2>
-<p>Portable C11 in <code>src/</code>. Host build + tests - no hardware required.</p>
+<p>Portable C11 in <code>src/</code>. Host build + tests, no hardware required.</p>
 <table>
   <thead><tr><th>Requirement</th><th>How</th><th>Test</th></tr></thead>
   <tbody>
@@ -213,15 +213,16 @@ flowchart LR
   </tbody>
 </table>
 <div class="grid two">
-  <div class="card"><h3>Rate control</h3><p>Exact period advance (no drift). Long stall clamped; loss counted.</p></div>
+  <div class="card"><h3>Rate control</h3><p>Exact period advance (no drift). Long stall clamped.</p></div>
   <div class="card"><h3>Loss is visible</h3><p>Seq numbers + drop counters on the wire. Phone never silently invents data.</p></div>
   <div class="card"><h3>Short critical section</h3><p>Bulk <code>memcpy</code> under lock, not per-sample work.</p></div>
-  <div class="card"><h3>Build</h3><p><code>cmake &amp;&amp; ctest</code> - 4 suites green; optional ASan/TSan.</p></div>
+  <div class="card"><h3>Build</h3><p><code>cmake &amp;&amp; ctest</code>, 4 suites green; optional ASan/TSan.</p></div>
 </div>
 
 <div class="callout">
   <h3>Twin check (overflow)</h3>
-  <p>Same core sources on simulated nRF54L15. Phone drops → buffer keeps newest 100; gap matches drop count.</p>
+  <p>Same core sources on simulated nRF54L15.</p>
+  <p>Phone drops → buffer keeps newest 100.</p>
   <div class="term"><span class="c">--- overflow + recovery ---</span>
 imu  pushed    : <span class="h">155</span>
 imu  delivered : <span class="h">135</span>
@@ -275,7 +276,7 @@ ppg  lost    : <span class="r">31</span> <span class="c">(sat)</span></div>
 </div>
 <p class="verdict">Same firmware; loss only under load. On hardware also: dark PD test, rail scope (AC, mV/div), sniffer time-correlation. Fix path: own analog rail, SPI+DMA, HW timestamps, flag bad jitter - don't emit confident wrong HR.</p>
 
-<h2><span class="n">09</span>Issue B - battery ~40% short</h2>
+<h2><span class="n">09</span>Issue B battery ~40% short</h2>
 <p>First: was “expected” a <strong>measured</strong> budget or a spreadsheet? Audit the model. Often that is the bug.</p>
 <table>
   <thead><tr><th>#</th><th>Cause</th><th>First check</th></tr></thead>
@@ -287,9 +288,9 @@ ppg  lost    : <span class="r">31</span> <span class="c">(sat)</span></div>
     <tr><td>B5</td><td>Cell capacity / ESR</td><td>Cycler at real load</td></tr>
   </tbody>
 </table>
-<p class="cap"><strong>Process:</strong> incremental attribution (deltas), full duty-cycle average, GPIO markers. <strong>Fix culture:</strong> CI power limit on PPK; residency telemetry over BLE.</p>
+<p class="cap"><strong>Process:</strong> incremental attribution (deltas), full duty-cycle average, GPIO markers.</p>
 
-<h2><span class="n">10</span>Issue C - 12% FPY fail</h2>
+<h2><span class="n">10</span>Issue C 12% FPY fail</h2>
 <p>12% is meaningless until Pareto. Then: <strong>bad product or bad test?</strong> Retest fails.</p>
 <table>
   <thead><tr><th>#</th><th>Cause</th><th>First check</th></tr></thead>
@@ -300,7 +301,7 @@ ppg  lost    : <span class="r">31</span> <span class="c">(sat)</span></div>
     <tr><td>C4</td><td>Solder / flex / post-assy detune</td><td>X-ray; serial across stages</td></tr>
   </tbody>
 </table>
-<p class="cap"><strong>Highest leverage:</strong> log measured values per step per serial, not pass/fail only. DFT, traceability, shielded RF, stage board test before battery/enclosure.</p>
+<p class="cap"><strong>Highest leverage:</strong> log measured values per step per serial. DFT, traceability, shielded RF, stage board test before battery/enclosure.</p>
 
 <h2><span class="n">11</span>Assumptions &amp; risks</h2>
 <div class="grid two">
@@ -308,7 +309,7 @@ ppg  lost    : <span class="r">31</span> <span class="c">(sat)</span></div>
   <div class="card"><h3>Risks</h3><p>Antenna on finger; research mode &lt; 24 h; false temp; motion-ruined PPG; dual-core version skew.</p></div>
 </div>
 <ul class="clean">
-  <li>PPR vs DMA energy - PPK both paths</li>
+  <li>PPR vs DMA energy, PPK both paths</li>
   <li>Real PPG mAh at usable SNR on real fingers</li>
   <li>Gating vs standby per sensor; assembled leakage</li>
   <li>Worn antenna TRP/TIS</li>
@@ -316,9 +317,7 @@ ppg  lost    : <span class="r">31</span> <span class="c">(sat)</span></div>
 
 <footer>
   <p>Code &amp; docs: <a href="https://github.com/w1ne/smart-ring-digital-twin">github.com/w1ne/smart-ring-digital-twin</a>
-  · twin: <a href="https://github.com/w1ne/labwired-core">labwired-core</a>
-  · chip/sensors: <a href="https://github.com/w1ne/labwired-core/pull/598">#598</a></p>
-  <p class="muted">Digital twin ≠ silicon. Behavioural models until measured on real HW. Use <strong>✎ Edit page</strong> (top-right) to tweak this write-up in-browser.</p>
+  · twin: <a href="https://github.com/w1ne/labwired-core">labwired-core</a></p>
 </footer>
 </div><!-- /#doc -->
 
