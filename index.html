@@ -2,7 +2,7 @@
 <html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Smart Ring — nRF54L15 Assessment</title>
+<title>Smart Ring - nRF54L15 Assessment</title>
 <meta name="description" content="Open-source smart ring on nRF54L15: concise system architecture, portable sensor manager, and field debugging method.">
 <style>
   :root{
@@ -79,7 +79,7 @@
 <header>
   <p class="kicker">Nordic nRF54L15 · open smart ring</p>
   <h1>Smart Ring Assessment</h1>
-  <p class="lede">Architecture, a working portable sensor manager, and how I'd debug three field failures. App team is separate — BLE is a hard contract.</p>
+  <p class="lede">Architecture, a working portable sensor manager, and how I'd debug three field failures. App team is separate - BLE is a hard contract.</p>
   <div class="tags">
     <span class="tag">① Architecture</span>
     <span class="tag">② Firmware</span>
@@ -89,7 +89,7 @@
 </header>
 
 <h2><span class="n">01</span>Product scope</h2>
-<p>Next-revision open-source ring. Power numbers are <strong>estimates</strong> — measure on hardware before trusting them.</p>
+<p>Next-revision open-source ring. Power numbers are <strong>estimates</strong> - measure on hardware before trusting them.</p>
 <table>
   <thead><tr><th>Item</th><th>Choice</th></tr></thead>
   <tbody>
@@ -101,7 +101,7 @@
 </table>
 
 <div class="embed3d">
-  <iframe src="https://app.kernelcad.com/embed/0a-fbk2x" title="nRF54L15 smart ring — interactive 3D model" allowfullscreen=""></iframe>
+  <iframe src="https://app.kernelcad.com/embed/0a-fbk2x" title="nRF54L15 smart ring - interactive 3D model" allowfullscreen=""></iframe>
 </div>
 <p class="cap"><strong>Drag to rotate.</strong> Flex PCB + sensors in band (kernelCAD model).</p>
 
@@ -120,16 +120,16 @@
 <p class="part">Part 1 · <b>System Architecture</b></p>
 
 <h2><span class="n">02</span>Firmware</h2>
-<p><strong>RTOS: Zephyr + nRF Connect SDK</strong> — BLE stack, DT variants, host CI (<code>native_sim</code>), MCUboot DFU.</p>
+<p><strong>RTOS: Zephyr + nRF Connect SDK</strong> - BLE stack, DT variants, host CI (<code>native_sim</code>), MCUboot DFU.</p>
 <div class="grid two">
   <div class="card"><h3>Portable C11 core</h3><p>No Zephyr types, no <code>malloc</code>. Ring buffers, sequence numbers, drop counts. Full → overwrite oldest.</p></div>
   <div class="card"><h3>Thin port</h3><p>~40 lines: lock + monotonic time. Host-testable under sanitizers.</p></div>
   <div class="card"><h3>BLE only pulls</h3><p>Drivers never call BLE. Radio thread drains batches on connection events.</p></div>
-  <div class="card"><h3>PPR? Measure first</h3><p>Optional: sample on co-processor, M33 sleeps. Cost: IPC + dual image. DMA-only may be enough — decide on EVK + PPK.</p></div>
+  <div class="card"><h3>PPR? Measure first</h3><p>Optional: sample on co-processor, M33 sleeps. Cost: IPC + dual image. DMA-only may be enough - decide on EVK + PPK.</p></div>
 </div>
 
 <h2><span class="n">03</span>Hardware</h2>
-<p>Rigid-flex islands (MCU/radio, PPG, battery). Height matters. <strong>One shared I²C is fragile</strong> — hung slave kills all sensing. Rev plan: PPG on its own SPI; I²C recovery + per-sensor power gate.</p>
+<p>Rigid-flex islands (MCU/radio, PPG, battery). Height matters. <strong>One shared I²C is fragile</strong> - hung slave kills all sensing. Rev plan: PPG on its own SPI; I²C recovery + per-sensor power gate.</p>
 
 <div class="mermaid">
 flowchart LR
@@ -148,7 +148,7 @@ flowchart LR
 </div>
 
 <div class="embed3d">
-  <iframe src="https://app.labwired.com/?board=nrf54l15-smart-ring-lab&amp;embed=true&amp;run=1&amp;panel=serial" title="nRF54L15 smart-ring — live LabWired simulation" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups" allowfullscreen=""></iframe>
+  <iframe src="https://app.labwired.com/?board=nrf54l15-smart-ring-lab&amp;embed=true&amp;run=1&amp;panel=serial" title="nRF54L15 smart-ring - live LabWired simulation" loading="lazy" sandbox="allow-scripts allow-same-origin allow-popups" allowfullscreen=""></iframe>
 </div>
 <p class="cap"><a href="https://labwired.com">LabWired</a> twin: firmware reads real sensor ID registers over I²C (not assumed “present”).</p>
 
@@ -184,7 +184,7 @@ flowchart LR
   <p>Shipping rings often use ~10 mAh. Then week budget ~61 µA and a ~108 µA design lasts <strong>&lt; 4 days</strong>. Measure the cell before promising a week.</p>
 </div>
 <p><strong>PPG LEDs dominate.</strong> Cut duty first: sample when still, min LED for SNR, shorter pulses. Then batch BLE. MCU micro-opts last.</p>
-<p class="cap">Rough research mode ~878 µA → ~22.8 h — <span class="notreal">misses 24 h by ~5%</span> on estimate. Trim PPG / gyro before claiming.</p>
+<p class="cap">Rough research mode ~878 µA → ~22.8 h - <span class="notreal">misses 24 h by ~5%</span> on estimate. Trim PPG / gyro before claiming.</p>
 
 <h2><span class="n">06</span>Expansion &amp; modes</h2>
 <p>Sensors in a static table → BLE <strong>capability</strong> at build time. New sensor = table row + driver; old apps ignore unknown types.</p>
@@ -201,7 +201,7 @@ flowchart LR
 <p class="part">Part 2 · <b>Firmware Implementation</b></p>
 
 <h2><span class="n">07</span>Sensor manager</h2>
-<p>Portable C11 in <code>src/</code>. Host build + tests — no hardware required.</p>
+<p>Portable C11 in <code>src/</code>. Host build + tests - no hardware required.</p>
 <table>
   <thead><tr><th>Requirement</th><th>How</th><th>Test</th></tr></thead>
   <tbody>
@@ -216,7 +216,7 @@ flowchart LR
   <div class="card"><h3>Rate control</h3><p>Exact period advance (no drift). Long stall clamped; loss counted.</p></div>
   <div class="card"><h3>Loss is visible</h3><p>Seq numbers + drop counters on the wire. Phone never silently invents data.</p></div>
   <div class="card"><h3>Short critical section</h3><p>Bulk <code>memcpy</code> under lock, not per-sample work.</p></div>
-  <div class="card"><h3>Build</h3><p><code>cmake &amp;&amp; ctest</code> — 4 suites green; optional ASan/TSan.</p></div>
+  <div class="card"><h3>Build</h3><p><code>cmake &amp;&amp; ctest</code> - 4 suites green; optional ASan/TSan.</p></div>
 </div>
 
 <div class="callout">
@@ -234,7 +234,7 @@ buffered       : <span class="h">100/100</span>
 <p class="part">Part 3 · <b>Debugging</b></p>
 <p class="cap" style="margin-top:14px"><strong>Method:</strong> cheapest discriminating test first · reproduce before changing · bisect (electrical / FW / algo) · one variable at a time.</p>
 
-<h2><span class="n">08</span>Issue A — PPG bad when BLE is busy</h2>
+<h2><span class="n">08</span>Issue A - PPG bad when BLE is busy</h2>
 <p>Scales with radio → power rail, RF/EMI, or timing (CPU/bus). Partition with two tests: <strong>bench-power the PPG</strong>; <strong>CPU busy-loop, radio off</strong>.</p>
 
 <div class="callout">
@@ -247,12 +247,12 @@ sequenceDiagram
   participant PPG as MAX30102 FIFO (1600Hz)
   participant CPU as Firmware drain loop
   participant BLE as BLE conn-event (SysTick)
-  Note over PPG,CPU: BLE OFF — CPU always free
+  Note over PPG,CPU: BLE OFF - CPU always free
   loop every few ms
     CPU->>PPG: drain all pending
     Note right of PPG: FIFO stays empty · 0 lost
   end
-  Note over PPG,BLE: BLE ON — event every 30ms
+  Note over PPG,BLE: BLE ON - event every 30ms
   BLE->>CPU: connection event (busy 25ms)
   Note right of CPU: cannot drain for 25ms
   PPG-->>PPG: fills past 32 (fills in ~20ms)
@@ -273,9 +273,9 @@ ppg  lost    : <span class="g">0</span></div>
 ppg  lost    : <span class="r">31</span> <span class="c">(sat)</span></div>
   </div>
 </div>
-<p class="verdict">Same firmware; loss only under load. On hardware also: dark PD test, rail scope (AC, mV/div), sniffer time-correlation. Fix path: own analog rail, SPI+DMA, HW timestamps, flag bad jitter — don't emit confident wrong HR.</p>
+<p class="verdict">Same firmware; loss only under load. On hardware also: dark PD test, rail scope (AC, mV/div), sniffer time-correlation. Fix path: own analog rail, SPI+DMA, HW timestamps, flag bad jitter - don't emit confident wrong HR.</p>
 
-<h2><span class="n">09</span>Issue B — battery ~40% short</h2>
+<h2><span class="n">09</span>Issue B - battery ~40% short</h2>
 <p>First: was “expected” a <strong>measured</strong> budget or a spreadsheet? Audit the model. Often that is the bug.</p>
 <table>
   <thead><tr><th>#</th><th>Cause</th><th>First check</th></tr></thead>
@@ -289,7 +289,7 @@ ppg  lost    : <span class="r">31</span> <span class="c">(sat)</span></div>
 </table>
 <p class="cap"><strong>Process:</strong> incremental attribution (deltas), full duty-cycle average, GPIO markers. <strong>Fix culture:</strong> CI power limit on PPK; residency telemetry over BLE.</p>
 
-<h2><span class="n">10</span>Issue C — 12% FPY fail</h2>
+<h2><span class="n">10</span>Issue C - 12% FPY fail</h2>
 <p>12% is meaningless until Pareto. Then: <strong>bad product or bad test?</strong> Retest fails; Gage R&amp;R on goldens.</p>
 <table>
   <thead><tr><th>#</th><th>Cause</th><th>First check</th></tr></thead>
@@ -308,7 +308,7 @@ ppg  lost    : <span class="r">31</span> <span class="c">(sat)</span></div>
   <div class="card"><h3>Risks</h3><p>Antenna on finger; research &lt; 24 h; false temp; motion-ruined PPG; dual-core version skew.</p></div>
 </div>
 <ul class="clean">
-  <li>PPR vs DMA energy — PPK both paths</li>
+  <li>PPR vs DMA energy - PPK both paths</li>
   <li>Real PPG mAh at usable SNR on real fingers</li>
   <li>Gating vs standby per sensor; assembled leakage</li>
   <li>Worn antenna TRP/TIS</li>
