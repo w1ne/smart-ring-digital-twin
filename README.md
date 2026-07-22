@@ -36,7 +36,7 @@ Demo (simulated sensors + BLE link):
 ./build/sensor_demo --seconds 9 --stall 3  # phone drops out, buffer overflows, gap reported
 ```
 
-Sanitizers (ASan/UBSan on the deterministic suites, TSan on the concurrency suite):
+Optional build with memory-bug and race detectors turned on: ASan/UBSan for the single-threaded tests, ThreadSanitizer for the multi-threaded stress test.
 
 ```sh
 cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DSM_SANITIZERS=ON
