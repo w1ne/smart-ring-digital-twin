@@ -2,16 +2,17 @@
 
 ## Method (all three)
 
-1. **Cheapest discriminating test first** — one experiment that kills several hypotheses beats a fancy one that only supports the favorite.
-2. **Reproduce deterministically before changing anything** — a fix without a confirmed repro is a guess.
-3. **Bisect** — electrical vs firmware vs algorithm; change one variable at a time.
-4. Every hypothesis needs a **predicted signature** (“if true, I will see X”).
+**Cheapest discriminating test first**. one experiment that kills several hypotheses.
+**Reproduce deterministically before changing anything**, a fix without a confirmed repro is a guess.
+**Bisect**, electrical vs firmware vs algorithm; change one variable at a time.
+Every hypothesis needs a **predicted signature** (“if true, I will see X”).
 
 ---
 
-## Issue A — PPG unreliable when BLE throughput rises
+## Issue A. PPG unreliable when BLE throughput rises
 
-**Clue:** scales with radio activity → power coupling, RF/EMI, or timing (CPU/bus/IRQ). Those three are separable with cheap tests.
+**Clue:** scales with radio activity → power coupling, RF/EMI, or timing (CPU/bus/IRQ). 
+Those three are separable with cheap tests.
 
 ### Likely causes
 
@@ -33,7 +34,7 @@
 5. **Algorithm last.** Jittered timestamps look like noise to HR estimators. Don’t blame the algo until the time base is clean.
 
 ### Tools
-Scope on analog rail (**AC couple, mV/div** — DC at 1 V/div misses bursts), PPK II, logic analyzer (bus + IRQs), SystemView/Zephyr trace, **RTT not UART**, BLE sniffer, near-field probe if EMI suspected, host capture of raw samples.
+Scope on analog rail (**AC couple, mV/div** , DC at 1 V/div misses bursts), PPK II, logic analyzer (bus + IRQs), SystemView/Zephyr trace, **RTT**, BLE sniffer, near-field probe if EMI suspected, host capture of raw samples.
 
 ### Design changes
 - Filtered **dedicated analog rail** for AFE (PSRR at >10 kHz matters for ~1 ms TX bursts; 1 kHz datasheet PSRR is not enough); separate LED path; star ground
@@ -45,7 +46,7 @@ Scope on analog rail (**AC couple, mV/div** — DC at 1 V/div misses bursts), PP
 
 ---
 
-## Issue B — Battery life ~40% below expectation
+## Issue B. Battery life ~40% below expectation
 
 **First question:** was “expected” measured, or a spreadsheet? Spreadsheets use guessed duty cycles and “typical @ 25 °C” numbers. **Audit the model first** — often that *is* the bug. 40% also looks like “one forgotten subsystem” or “conn interval not what you asked for.”
 
@@ -87,14 +88,15 @@ Nordic **PPK II**, SMU/Joulescope for long µA captures, GPIO markers, Zephyr PM
 
 ---
 
-## Issue C — 12% first-pass yield fail in manufacturing
+## Issue C. 12% first-pass yield fail in manufacturing
 
-**12% means nothing until Pareto.** One mode at 11% ≠ twelve modes at 1%. No engineering fix before the failure breakdown.
+**12% means nothing.** One mode at 11% ≠ twelve modes at 1%. 
+No engineering fix before the failure breakdown.
 
 ### First two actions (before root-cause theater)
 
-1. **Pareto:** fail by test step, station, shift, operator, panel position, serial, supplier lot  
-2. **Bad product vs bad test?** Retest fails. High retest pass rate → fixture/test. **Gage R&R:** golden units through the station repeatedly. If goldens fail 5%, that *is* most of your 12%.
+**Pareto** Anakyzer failure by test step, station, shift, operator, panel position, serial, supplier lot  
+**Bad product vs bad test?** Retest fails. High retest pass rate → fixture/test. **Gage R&R:** golden units through the station repeatedly. If goldens fail 5%, that *is* most of your 12%.
 
 ### Likely causes
 
@@ -130,13 +132,4 @@ X-ray/cross-section, AOI, shield box / RF chamber, SWD/BIST structural test, sim
 
 ---
 
-## Across all three
-
-| Principle | Meaning |
-|---|---|
-| **Parametric > pass/fail** | PPG needs jitter/quality flags; power needs residency counters; manufacturing needs measured values |
-| **Instrument → hypothesize → fix** | Never reverse that order |
-| **Every fix needs a regression** | CI PPG-under-BLE load; CI power on PPK; SPC on the line |
-| **Observability is part of the fix** | Systems that cannot report what they are doing will fail the same way again |
-
-**One line:** make the system measurable first; then the root cause is usually obvious.
+**Make the system measurable first; then the root cause is usually obvious.**
