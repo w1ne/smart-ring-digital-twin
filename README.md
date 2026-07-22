@@ -7,6 +7,8 @@ See
 
 **Live write-up (interactive 3D + diagrams): https://w1ne.github.io/smart-ring-digital-twin/**
 
+On the page: use **✎ Edit page** (top-right) to edit text in the browser, then **Export index.html** to download a file to commit. `?edit=1` still works.
+
 for demos
 
 ## Deliverables

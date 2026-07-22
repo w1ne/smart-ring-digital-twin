@@ -60,6 +60,17 @@
   .lbl{display:inline-block;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin:16px 0 2px}
   footer{margin-top:64px;padding-top:20px;border-top:1px solid var(--line);color:var(--dim);font-size:12px}
   .muted{color:var(--dim)}
+  /* Always-visible page chrome (edit entry + edit mode toolbar) */
+  .page-chrome{position:fixed;top:10px;right:10px;z-index:9999;display:flex;flex-wrap:wrap;gap:6px;justify-content:flex-end;max-width:calc(100vw - 20px)}
+  .page-chrome button,.page-chrome a.chrome-btn{
+    background:var(--card);color:var(--fg);border:1px solid var(--line);
+    padding:8px 12px;cursor:pointer;font:12px/1 var(--mono);letter-spacing:.04em;
+    text-decoration:none;display:inline-block}
+  .page-chrome button.primary,.page-chrome a.chrome-btn.primary{background:var(--accent);color:#111;border-color:var(--accent)}
+  .page-chrome button:hover,.page-chrome a.chrome-btn:hover{border-color:var(--accent)}
+  .edit-hint{position:fixed;bottom:10px;left:10px;z-index:9999;background:var(--card);color:var(--dim);
+    border:1px solid var(--line);padding:7px 11px;font:11px/1.3 var(--mono);max-width:min(420px,calc(100vw - 20px))}
+  body.is-editing{outline:2px dashed var(--accent);outline-offset:-2px}
 </style>
 </head>
 <body>
@@ -378,17 +389,19 @@ ppg  lost to overflow: <span class="r">31</span> <span class="c">(saturated)</sp
     }
   });
 
-  // ── In-browser editor — open the page with ?edit=1 ─────────────────────────
-  // Click any text to edit it. Edits auto-save in THIS browser (localStorage);
-  // "Export" downloads the edited index.html to commit. Reviewers visiting the
-  // plain URL get a clean, non-editable page.
+  // ── In-browser editor ──────────────────────────────────────────────────────
+  // Always shows an "Edit page" control on the page. In edit mode, click any
+  // text to change it. Edits auto-save in THIS browser (localStorage).
+  // "Export" downloads index.html to commit. ?edit=1 still forces edit mode.
   const doc = document.getElementById("doc");
-  const editing = new URLSearchParams(location.search).has("edit");
+  const params = new URLSearchParams(location.search);
   const KEY = "ring-edits-v1";
+  let editing = params.has("edit");
 
+  // Restore draft only when opening in edit mode (?edit=1 or after Edit click).
   if (editing) {
     const saved = localStorage.getItem(KEY);
-    if (saved) doc.innerHTML = saved;   // restore prior edits (diagrams included)
+    if (saved) doc.innerHTML = saved;
   }
 
   await mermaid.run({ nodes: [...document.querySelectorAll(".mermaid:not([data-processed])")] });
@@ -397,7 +410,6 @@ ppg  lost to overflow: <span class="r">31</span> <span class="c">(saturated)</sp
     const clone = document.documentElement.cloneNode(true);
     clone.querySelectorAll(".editor-chrome").forEach(e => e.remove());
     clone.querySelectorAll("[contenteditable]").forEach(e => e.removeAttribute("contenteditable"));
-    // Rendered diagram → original mermaid source, so the exported file re-renders cleanly.
     clone.querySelectorAll(".mermaid").forEach(el => {
       if (el.dataset.src) {
         el.textContent = el.dataset.src;
@@ -406,6 +418,7 @@ ppg  lost to overflow: <span class="r">31</span> <span class="c">(saturated)</sp
         el.removeAttribute("style");
       }
     });
+    // Leave page without forced ?edit=1 in a clean export.
     const html = "<!DOCTYPE html>\n" + clone.outerHTML;
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([html], { type: "text/html" }));
@@ -413,31 +426,80 @@ ppg  lost to overflow: <span class="r">31</span> <span class="c">(saturated)</sp
     a.click();
   }
 
-  if (editing) {
+  function setUrlEditFlag(on) {
+    const u = new URL(location.href);
+    if (on) u.searchParams.set("edit", "1");
+    else u.searchParams.delete("edit");
+    history.replaceState(null, "", u);
+  }
+
+  const chrome = document.createElement("div");
+  chrome.className = "page-chrome editor-chrome";
+  const hint = document.createElement("div");
+  hint.className = "edit-hint editor-chrome";
+  hint.hidden = true;
+
+  function btn(label, fn, primary) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.textContent = label;
+    if (primary) b.className = "primary";
+    b.addEventListener("click", fn);
+    return b;
+  }
+
+  function onDocInput() {
+    localStorage.setItem(KEY, doc.innerHTML);
+  }
+
+  function enterEdit() {
+    editing = true;
+    setUrlEditFlag(true);
+    // Restore draft if any (after first mermaid paint, re-apply user HTML).
+    const saved = localStorage.getItem(KEY);
+    if (saved && doc.getAttribute("contenteditable") !== "true") {
+      doc.innerHTML = saved;
+      document.querySelectorAll(".mermaid").forEach(el => {
+        if (!el.dataset.src) el.dataset.src = el.textContent.trim();
+      });
+      mermaid.run({ nodes: [...document.querySelectorAll(".mermaid:not([data-processed])")] });
+    }
     doc.setAttribute("contenteditable", "true");
     doc.style.outline = "none";
-    doc.addEventListener("input", () => localStorage.setItem(KEY, doc.innerHTML));
-
-    const btn = (label, fn) => {
-      const b = document.createElement("button");
-      b.textContent = label;
-      b.style.cssText = "background:#ff5c37;color:#111;border:0;padding:8px 12px;cursor:pointer;font:12px/1 SFMono-Regular,ui-monospace,monospace;letter-spacing:.04em";
-      b.onclick = fn;
-      return b;
-    };
-    const bar = document.createElement("div");
-    bar.className = "editor-chrome";
-    bar.style.cssText = "position:fixed;top:10px;right:10px;z-index:9999;display:flex;gap:6px";
-    bar.append(
-      btn("⤓ Export index.html", exportHtml),
-      btn("↺ Reset", () => { localStorage.removeItem(KEY); location.reload(); })
-    );
-    const hint = document.createElement("div");
-    hint.className = "editor-chrome";
-    hint.textContent = "EDIT MODE · click any text to edit · Export when done";
-    hint.style.cssText = "position:fixed;bottom:10px;left:10px;z-index:9999;background:#151517;color:#9a9a94;border:1px solid #2a2a2e;padding:7px 11px;font:11px/1.3 SFMono-Regular,ui-monospace,monospace";
-    document.body.append(bar, hint);
+    document.body.classList.add("is-editing");
+    doc.removeEventListener("input", onDocInput);
+    doc.addEventListener("input", onDocInput);
+    paintChrome();
   }
+
+  function exitEdit() {
+    editing = false;
+    setUrlEditFlag(false);
+    doc.removeAttribute("contenteditable");
+    document.body.classList.remove("is-editing");
+    doc.removeEventListener("input", onDocInput);
+    paintChrome();
+  }
+
+  function paintChrome() {
+    chrome.replaceChildren();
+    if (!editing) {
+      chrome.append(btn("✎ Edit page", enterEdit, true));
+      hint.hidden = true;
+      return;
+    }
+    chrome.append(
+      btn("⤓ Export index.html", exportHtml, true),
+      btn("↺ Reset", () => { localStorage.removeItem(KEY); location.href = location.pathname + location.hash; }),
+      btn("Done", exitEdit)
+    );
+    hint.hidden = false;
+    hint.textContent = "EDIT MODE · click any text to edit · Export downloads a file you can commit · Done leaves edit mode";
+  }
+
+  document.body.append(chrome, hint);
+  paintChrome();
+  if (editing) enterEdit();
 </script>
 </body>
 </html>
