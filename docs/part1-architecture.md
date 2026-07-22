@@ -1,330 +1,339 @@
-# Part 1 System Architecture
+# Part 1 — System Architecture
 
-Scope: next-revision open-source smart ring — nRF54L15, IMU, PPG, temperature, cap-touch, LRA/ERM motor, BLE 5.x, ~20 mAh Li-Po. 
-A separate team builds the app in parallel, so the BLE contract is a hard, versioned, discoverable interface.
+**Product:** next-revision open-source smart ring  
+**MCU:** Nordic nRF54L15  
+**Sensors / IO:** IMU, PPG (heart rate), temperature, capacitive touch, vibrator motor  
+**Connectivity:** BLE 5.x  
+**Power:** rechargeable Li-Po (~20 mAh usable assumed)  
+**App:** built by a parallel team → the BLE contract must be clear, versioned, and discoverable
 
-All figures below are **order-of-magnitude estimates, not datasheet values** - each needs bench validation on DVT (§7 names the measurement for each open number).
-
----
-
-## 1. Firmware Architecture
-
-### 1.1 RTOS choice: Zephyr via nRF Connect SDK
-
-**Decision: Zephyr + nRF Connect SDK (NCS).**:
-
-- First-class target: maintained BLE controller, PPR/FLPR support, nrfx drivers.
-- Devicetree + Kconfig give board variants for free - critical for §5, where a new sensor is an overlay.
-- `native_sim` runs the app layer on host; with the portable core (§1.2) that's hardware-free CI unit testing.
-- MCUboot + SMP/mcumgr gives signed DFU out of the box;
-
-### 1.2 Layering
-
-```
-┌──────────────────────────────────────────────┐
-│  BLE service layer  (GATT, batching, backfill)│   ← DRAINS buffers
-├──────────────────────────────────────────────┤
-│  Sensor manager core   (portable C11)         │   ← no RTOS types
-│  ring buffers · seq numbers · drop counters   │
-├──────────────────────────────────────────────┤
-│  Port layer   sm_lock_t · sm_time_now()       │   ← ~40 lines per platform
-├──────────────────────────────────────────────┤
-│  HAL / drivers   Zephyr sensor.h · raw nrfx   │
-└──────────────────────────────────────────────┘
-```
-
-The **sensor manager core** is pure C11, no Zephyr headers: one static ring buffer per channel, **overwrite-oldest** on overflow, monotonic 32-bit sequence number, per-channel drop counter. Capacities are arbitrary (products: 100 and 20), so wrapping is modular not mask-based — a test pins that. No `malloc`, no unbounded queues: on a 256 KB device with a real-time radio, dynamic allocation is a latent failure, and blocking a producer to avoid a drop is worse — it stalls sampling and corrupts the timebase for *every* channel. Overwrite-oldest suits a wearable: after a six-hour gap the newest data beats the oldest, and the drop counter lets the app quantify loss instead of silently interpolating.
-
-The **port layer** is the entire RTOS dependency: opaque `sm_lock_t` (lock/unlock) and `sm_time_now()` (monotonic µs). Zephyr → `k_spinlock` / `k_uptime_ticks()`; host → pthread mutex / `CLOCK_MONOTONIC`. That makes the core host-testable: wraparound, overflow drain, and sequence continuity run in CI under sanitizers, not on flashed hardware.
-
-Above the core, the **BLE layer is a consumer, never a callee**: drivers never call BLE; the BLE thread bulk-copies N records when a connection event needs filling — killing priority-inversion/reentrancy bugs and letting the radio, not the sensor, decide when it runs.
-
-### 1.3 The PPR split — headline decision
-
-nRF54L15 carries a Cortex-M33 @128 MHz plus a **PPR (Peripheral Processor, a RISC-V "VPR" core)** and an **FLPR (fast lightweight processor)**. Architect around this:
-
-- **PPR** runs the always-on acquisition loop — service INT lines, drain FIFOs over TWIM/SPIM, timestamp, push to shared ring buffers — from a low-power clock domain, M33 asleep.
-- **M33** stays in System OFF / idle with RAM retention, waking only for BLE connection events, batch/signal processing, and user interaction.
-- **FLPR** reserved for tightly-timed peripheral work (future nonstandard-bus sensor, motor waveform generation).
-
-Win: the always-on 25–50 Hz sampling never wakes the 128 MHz M33, whose wake pattern collapses to roughly the BLE connection interval.
-
-**Costs:** an IPC/shared-memory protocol — coherency on the shared SRAM and a cross-core lock (`k_spinlock` is thread-only; need an inter-core mutex or SPSC lock-free indices). Dual-image DFU: PPR and M33 must version together or the shared layout silently corrupts — embed a layout hash in both, refuse to boot on mismatch.
-
-**Unknown:** unbenchmarked — PPR wake latency and per-transaction energy vs DPPI/PPI-driven EasyDMA that never wakes the M33. PPI + autonomous TWIM/SPIM may get 80% of the benefit at 20% of the complexity. **First EVK measurement**, before committing to the split.
-
-### 1.4 Concurrency model
-
-| Context | Priority | Job |
-|---|---|---|
-| Sensor INT / timer | IRQ or PPR | Timestamp, kick DMA |
-| Acquisition thread | High (cooperative) | Drain FIFO → ring buffer |
-| BLE stack | Zephyr-managed, highest effective | Radio timing — never blocked by us |
-| Consumer thread | Low | Bulk drain → GATT notify / flash log |
-| Idle | — | Tickless, PM enters System ON-IDLE / OFF |
-
-Ring buffers are the *only* shared mutable state. Critical sections are short and bounded — index arithmetic plus a `memcpy` of a contiguous span, never per-record calls under lock. Worst-case hold (N × record_size) must sit well under the BLE guard time — target < 20 µs, asserted by GPIO toggle on a logic analyzer.
+All current and battery figures are **order-of-magnitude estimates**. They need bench validation on hardware (see §7).
 
 ---
 
-## 2. Hardware Architecture
+## 1. Firmware architecture
 
-**PCB.** Rigid-flex: a flex spine with two or three rigid islands (MCU+radio, PPG+optics, battery/charge) wrapped into the band. Area binds everything in §5, and component *height* matters as much as footprint — inner-diameter clearance is unforgiving.
+### 1.1 RTOS: Zephyr (nRF Connect SDK)
 
-**Antenna.** Dominant RF problem: a lossy, high-permittivity finger millimetres away detunes it — resonance drops, several dB lost.
-- Hard keep-out; no battery, copper pour, or motor under it.
-- Tune with a **finger phantom / loaded fixture**, never free space — free-space-tuned wearable antennas are a classic field failure.
-- Lean **ceramic chip antenna** over a printed trace: smaller, easier to match on curved rigid-flex where trace geometry varies across the bend, at BOM and Q cost. Decide from a measured DVT comparison.
+**Choice: Zephyr + NCS.**
 
-**Power tree.** Li-Po (3.0–4.2 V) → nRF54L15 internal DC/DC (VDD direct), plus three load-switched rails: `VDD_SENSOR_DIG` (IMU, temp, touch), `VDD_ANALOG` (PPG AFE, separately filtered), `VDD_MOTOR` (driver, local bulk cap). Rail gating isn't optional: a "standby" sensor still draws µA and leaks — three at 3 µA is 7.5% of the week budget for nothing. Tradeoff: re-init/re-calibration on power-up; for some parts a cold start costs more than standby, a per-part crossover.
-
-**PPG gets its own filtered analog rail.** BLE PA transients (tens of mA at connection cadence) coupled into a microvolt-scale photodiode front end are a synchronous artifact indistinguishable from a real physiological signal. Separate rail, local bulk, star ground, PPG sampling scheduled around radio events.
-
-**Bus resilience.** All four sensors on one shared I²C bus (TWIM21) is the fragile point: one wedged device — brownout mid-transfer, ESD, a clock-stretch hang — takes down *all* sensing, and it's the same root as Issue A. Rev 2 splits the **PPG onto its own SPI bus** (isolation + the throughput it needs); firmware carries an I²C recovery routine (nine clock pulses to unstick a slave holding SDA → TWIM reset → per-transaction timeout → re-init) plus **per-sensor power gating**, so a hung device self-heals and is flagged instead of bricking the ring.
-
-**Charging.** Contact pads, not Qi (a Qi secondary costs volume we lack and couples poorly at this size). Contact costs: sweat corrosion/electrolysis (gold-over-nickel, pads equipotential when idle), ESD (TVS on both pads, non-negotiable), cradle alignment. Add a charge-inhibit path so a shorted/wet cradle can't dump into the cell.
-
-**Fuel gauging.** ADC voltage is free but useless in Li-Po's flat 30–80% band; firmware coulomb counting needs accurate µA current sense (hard); a gauge IC with a model costs a part and ~1–3 µA. Recommendation: **gauge IC** — a wearable that lies about battery is a support burden, and 2 µA of 119 µA is affordable. Area-constrained fallback: voltage + a learned discharge model, flagged low-confidence.
-
-**Interrupts.** Every sensor INT routes to a GPIO that wakes from System OFF; polling is the enemy — a 1 Hz poll waking the M33 costs more than the sensor it reads. IMU wake-on-motion is the master gate for §4's adaptive sampling.
-
-**Thermal.** The temperature sensor should read *skin* but reads a mix of skin, MCU self-heating, PPG LED dissipation, and motor — the most under-appreciated BOM failure mode. Mitigations: thermally isolated island (flex neck, slotted copper, minimal pour) far from PPG/motor, coupled to the skin-side wall; a firmware blackout window around PPG bursts and haptics. Accuracy stays poor — document for *trends and deltas only*, not core temperature.
-
-**Motor.** A mechanical and electrical aggressor: back-EMF needs a flyback diode and a real driver; inrush sags the rail (browns out PPG, disturbs coulomb counting); mechanically it saturates the IMU and destroys PPG while running. Firmware flags IMU/PPG samples spanning a haptic event invalid via a record flag bit (§3).
-
-**Test/debug.** SWD pads on the panel (ideally survivable on the assembled unit — open platform), RTT logging (no UART pins burned), a pogo-pin production fixture on SWD + charge/test pads, and a self-test firmware mode that exercises every sensor over BLE.
-
----
-
-## 3. BLE Interface Design
-
-### 3.1 Service map
-
-| Service | Use |
+| Why | Detail |
 |---|---|
-| Device Information (SIG) | Model, HW rev, FW rev, serial |
-| Battery Service (SIG) | Battery level — free integration with every OS |
-| Current Time (SIG) | Coarse time sync |
-| **Ring Data Service (custom, 128-bit UUID)** | Everything else |
+| Nordic stack | Maintained BLE controller and drivers |
+| Board variants | Devicetree / Kconfig — new sensors as overlays, not forks |
+| Host testing | `native_sim` + portable core → CI without hardware |
+| Updates | MCUboot + SMP/mcumgr → signed DFU over BLE |
 
-Custom service characteristics:
+**Not bare-metal:** six mixed-rate streams, BLE timing, offline log, and DFU are an RTOS-shaped problem. Power will be dominated by radio and PPG LEDs, not the RTOS tick.
 
-| Char | Props | Purpose |
+**Cost to accept:** NCS version churn. Mitigate with a pinned SDK revision and a containerized build.
+
+### 1.2 Software layers
+
+```
+BLE layer            pulls data, notifies phone, handles backfill
+Sensor manager       ring buffers, sequence numbers, drop counts  (portable C11)
+Port layer           lock + monotonic time only  (~40 lines per platform)
+Drivers / HAL        Zephyr sensor API or nrfx
+```
+
+**Sensor manager rules:**
+- Pure C11 — no Zephyr types → host unit tests and sanitizers
+- No `malloc`; fixed static buffers
+- Buffer full → **overwrite oldest**, keep newest (right trade for a wearable after a long disconnect)
+- Every drop is counted; each sample has a sequence number so the phone can see gaps
+- Capacities are product numbers (100 IMU / 20 temp), not power-of-two masks — wrap with modulo
+
+**Port layer** is the only OS dependency: lock acquire/release + `time_now_us()`.  
+Zephyr → spinlock / uptime; host → pthread / `CLOCK_MONOTONIC`.
+
+**BLE is a consumer only.** Drivers never call BLE. The radio thread drains batches when a connection event needs filling. That avoids priority inversion and keeps sensor timing independent of the link.
+
+### 1.3 Dual-core (PPR) — measure before committing
+
+nRF54L15 has a main Cortex-M33 plus smaller co-processors (PPR / FLPR).
+
+| Approach | Idea |
+|---|---|
+| **PPR path** | Small core runs continuous sampling; M33 mostly sleeps until BLE / UI work |
+| **Simpler path** | Keep sampling on M33 with DMA + hardware triggers (PPI/DPPI) so the CPU still sleeps most of the time |
+
+**PPR win:** always-on 25–50 Hz sampling without waking the big core every sample.  
+**PPR cost:** shared memory protocol, cross-core locking, dual firmware images, version skew can corrupt the layout.
+
+**Decision rule:** first EVK power measurement of PPR vs DMA-only. DMA may deliver most of the energy win at far less complexity. Do not commit the split on paper alone.
+
+### 1.4 Concurrency
+
+| Context | Job |
+|---|---|
+| Sensor IRQ / timer | Timestamp, kick DMA |
+| Acquisition | FIFO → ring buffer |
+| BLE stack | Radio timing — never blocked by app code |
+| Consumer | Bulk drain → GATT notify or flash log |
+| Idle | Tickless; deep sleep when idle |
+
+Ring buffers are the only shared mutable state. Critical sections stay short: index math + one bulk `memcpy`, not per-record work under the lock. Target worst-case hold well under BLE timing margins (check with a GPIO toggle on a logic analyzer).
+
+---
+
+## 2. Hardware architecture
+
+### PCB
+Rigid-flex: flex spine with rigid islands (MCU/radio, PPG/optics, battery/charge).  
+Inner-diameter clearance is tight — **height** matters as much as footprint.
+
+### Antenna
+A finger is lossy and detunes resonance. Several dB of range is easy to lose.
+
+- Hard keep-out: no battery, pour, or motor under the antenna
+- Tune on a **finger phantom / worn fixture**, never free space only
+- Prefer a small **chip antenna** if printed trace geometry is unreliable on curved flex  
+  Final pick from measured DVT comparison
+
+### Power tree
+Li-Po (≈3.0–4.2 V) → nRF54L15 internal DCDC, plus three load-switched rails:
+
+| Rail | Supplies |
+|---|---|
+| `VDD_SENSOR_DIG` | IMU, temp, touch |
+| `VDD_ANALOG` | PPG AFE (filtered, separate) |
+| `VDD_MOTOR` | Haptic driver + local bulk cap |
+
+Rail gating is not optional on a ~100 µA week budget: three sensors at 3 µA standby is already a large fraction of the budget.  
+Tradeoff: cold-start + re-init energy vs standby — decide **per part** after measurement.
+
+**PPG gets its own filtered analog rail.** BLE TX bursts (tens of mA) on a shared rail couple into a microvolt photodiode front-end and look like physiology. Separate rail, local bulk, star ground; schedule sampling away from radio events where possible.
+
+### Buses
+One shared I²C for every sensor is fragile: one hung slave (brownout, ESD, clock stretch) kills all sensing.
+
+**Rev plan:**
+- PPG (and preferably IMU) on **SPI** for isolation and FIFO drain speed
+- Slow parts (temp, fuel gauge, future light/mag) on **I²C**
+- Firmware: I²C recovery (clock pulses → controller reset → timeout → re-init) + per-sensor power kill
+
+### Charging and battery gauge
+- **Contact pads**, not Qi (volume and coupling are poor at ring size)
+- Gold-over-nickel pads, equipotential when idle; **TVS** on both pads; charge-inhibit if cradle is wet/shorted
+- Voltage-only SoC is weak in the flat Li-Po region → prefer a **fuel-gauge IC** (~1–3 µA). Fallback: voltage + learned model, marked low-confidence
+
+### Interrupts, thermal, motor, test
+- Every sensor INT can wake from deep sleep. Avoid polling.
+- IMU wake-on-motion gates adaptive PPG (see §4).
+- Temperature reads a mix of skin + MCU + LED + motor heat. Isolate thermally; document as **trends/deltas only**, not core body temp.
+- Motor is electrical and mechanical noise: flyback + real driver; flag IMU/PPG samples during haptics invalid.
+- SWD pads (ideally reachable after assembly), RTT not UART, pogo production fixture, self-test mode over BLE.
+
+---
+
+## 3. BLE interface design
+
+### 3.1 Services
+
+| Service | Role |
+|---|---|
+| Device Information (SIG) | Model, HW/FW rev, serial |
+| Battery Service (SIG) | Level for the OS |
+| Current Time (SIG) | Coarse clock sync |
+| **Ring Data Service (custom UUID)** | Everything product-specific |
+
+**Custom characteristics:**
+
+| Characteristic | Props | Purpose |
 |---|---|---|
-| Capability descriptor | Read | Generated from the sensor table (§5): sensor IDs, rates, record sizes, protocol version |
-| Stream control | Write | Start/stop per channel, rate, mode (week / research) |
-| **Sensor data** | Notify | Batched packed binary records |
-| Configuration | Read/Write | Thresholds, calibration constants, log policy |
-| Control point | Write + Indicate | Haptic buzz, calibrate, time sync, backfill request, factory reset — indicate carries the result code |
-| Log / backfill | Notify | Historical records drained from flash |
+| Capability | Read | Sensor list, rates, sizes, protocol version |
+| Stream control | Write | Start/stop, rate, week vs research mode |
+| Sensor data | Notify | Live batched binary records |
+| Configuration | R/W | Thresholds, calibration, log policy |
+| Control point | Write + Indicate | Haptic, calibrate, time sync, backfill, factory reset |
+| Log / backfill | Notify | History after disconnect |
 
-### 3.2 Batching is the whole design
+### 3.2 Batching is the energy design
 
-50 Hz IMU × 12 B ≈ **600 B/s** — trivial for 2M PHY. The problem is **wakeups**: one notification per sample is 50 radio wakes/s, each ramping up, and ramp-up energy dwarfs payload. Batching cuts wakes proportionally for identical data.
+50 Hz IMU is only ~600 B/s — easy for 2M PHY. The expensive part is **radio wakeups**.
 
-So fill the negotiated ATT MTU. With **DLE and a 247-byte ATT MTU** (244 B payload after the header), the format packs a 16-byte batch header plus 14-byte IMU records: **16 records per notification** — one every 320 ms at 50 Hz, not fifty per second. A longer connection interval collapses radio duty further.
+- One notification per sample = ~50 wakes/s → bad for a 20 mAh cell
+- Fill the negotiated ATT MTU; pack many samples per notification  
+  Example: 16-byte header + 14-byte IMU records → **~16 samples per notify** ≈ one event every 320 ms at 50 Hz
+- Use **2M PHY**, **DLE**, negotiate MTU at connect, **derive** batch size (Android/iOS grant different MTUs; hardcoding 244 fragments)
 
-Implemented in `src/ble_batch.c`, asserted by `payload_budget_yields_sixteen_imu_samples` in `tests/test_ble_batch.c`.
+Implemented in `src/ble_batch.c`; covered by `tests/test_ble_batch.c`.
 
-Rules: **2M PHY** (halves airtime/energy), **DLE**, negotiate MTU at connect, *derive* batch size from it — Android and iOS grant different values, and a hardcoded 244 silently fragments.
+### 3.3 Wire format (summary)
 
-### 3.3 Record framing
-
-What `src/ble_batch.c` emits: little-endian, field-by-field — never a struct `memcpy`, since compiler padding and host endianness aren't part of a cross-team contract.
+Little-endian, field-by-field writers — **never** `memcpy` a C struct onto the air (padding/endian are not a cross-team contract).
 
 ```
-off  size  field
-0    1     type       0x01 IMU batch, 0x02 temperature batch
-1    1     count      records in this frame
-2    4     first_seq  monotonic sequence number of record 0
-6    8     base_t_us  absolute device time of record 0
-14   2     dropped    lifetime drop count, saturating at 0xFFFF
-16   ...   records
+Header:
+  type, count, first_seq, base_t_us, dropped (saturates at 0xFFFF)
 
-IMU record  (14 B): dt_us:u16, accel[3]:i16, gyro[3]:i16
-Temp record ( 6 B): dt_ms:u16, milli_celsius:i32
+IMU record:  dt_us, accel[3], gyro[3]
+Temp record: dt_ms, milli_celsius
 ```
 
-`first_seq` + `count` let the phone reconstruct ordering and detect gaps; `dropped` comes straight from the ring buffer's drop counter, so the app *quantifies* loss. It saturates, not wraps — "at least 65535 lost" is true; a wrapped small number lies.
+- Sequence + count → order and gap detection
+- Drop count → phone quantifies loss
+- `dt` is **inter-sample gap**, not cumulative offset from base (avoids u16 overflow)
+- Units differ per stream (µs for IMU, ms for temp)
 
-Two encoder subtleties (both caught by the payload-budget test):
-
-- **`dt` is the inter-record gap, not a `base_t_us` offset.** A cumulative u16 of µs overflows at 65.5 ms — three samples at 50 Hz — closing batches before the payload fills; the gap need only span one sample period.
-- **Unit is per-stream** — µs (50 Hz IMU), ms (1 Hz temp); a µs field can't hold one 1 Hz period. Hence typed records, not generic.
-
-An over-large gap closes the batch early rather than emit a wrong delta; the rest buffer for the next frame.
-
-**Next:** a `flags` byte (backfill / haptic-corrupt / overflow) and a `sensor_id` into the §5 capability table, so a new sensor gets a new type tag and old apps skip it rather than misparse.
+Later: `flags` (backfill / haptic-corrupt / overflow) and `sensor_id` for forward-compatible types.
 
 ### 3.4 Connection parameters
 
-The **peripheral must request** its preferred parameters (`bt_conn_le_param_update`); central defaults are fine for a phone and ruinous for a 20 mAh cell.
+Peripheral **requests** params (`bt_conn_le_param_update`). Phone defaults are often too aggressive for a tiny cell.
 
-| Mode | Conn interval | Slave latency | Effect |
+| Mode | Conn interval | Slave latency | Intent |
 |---|---|---|---|
-| Week | 400–1000 ms | 4–10 | Radio nearly idle; latency in seconds, fine for background logging |
-| Research | 15–50 ms | 0 | Low latency, high throughput, ~7× the radio energy |
+| Week | 400–1000 ms | 4–10 | Background logging, low radio duty |
+| Research | 15–50 ms | 0 | Low latency stream, ~7× radio energy |
 
-iOS rejects parameters outside Apple's accessory guidelines outright. Test both platforms early, not at integration.
+Test **iOS and Android** early — iOS rejects parameters outside its accessory rules.
 
-### 3.5 Security and privacy
+### 3.5 Security, offline log, DFU
 
-LESC pairing with bonding; reject legacy pairing. **Resolvable private addresses with rotation** — a static MAC is a passive tracking beacon following the wearer through every BLE scanner in a city; not optional. Accept-list filter once bonded; encrypt-and-authenticate the data and control-point characteristics.
-
-### 3.6 Offline logging and backfill
-
-Non-negotiable for a ring (showers, sleep, phone left behind): with no connection the consumer thread drains ring buffers into a flash log (Zephyr NVS or a circular RRAM/external-flash log). On reconnect the app sends a backfill request with its last sequence number; the device streams the gap over the log characteristic with `flags.backfill` set, rate-limited so it doesn't starve live data. The log is itself overwrite-oldest with drop accounting.
-
-### 3.7 DFU
-
-MCUboot + SMP/mcumgr over BLE, dual-slot with revert-on-failure — a bricked ring needs disassembly to recover. Open platform: **unlocked but signed**, with a documented, replaceable key so a researcher can build and sign their own image while stock devices refuse unsigned firmware.
+- LESC pairing + bonding; reject legacy pairing
+- Resolvable private addresses with rotation (static MAC = tracking beacon)
+- Encrypt/authenticate data and control characteristics; accept-list after bond
+- No phone → drain ring buffers to flash/RRAM log; on reconnect, backfill from last sequence, rate-limited so live data still flows
+- MCUboot dual-slot + revert on failure; **signed but documented keys** so researchers can ship their own images while stock units reject unsigned firmware
 
 ---
 
-## 4. Power Management Strategy
+## 4. Power management
 
-### 4.1 The two budgets
-
-Assume a **20 mAh usable** Li-Po (below nameplate after cutoff voltage and aging margin). Every decision below is measured against these:
+### 4.1 Budgets (20 mAh usable)
 
 | Target | Average current budget |
 |---|---|
-| **1 week** (168 h) | 20 mAh / 168 h = **~119 µA** |
-| **24 hours** | 20 mAh / 24 h = **~833 µA** |
+| 1 week (168 h) | **~119 µA** |
+| 24 hours | **~833 µA** |
 
-> **Probably optimistic — the first thing I'd nail down.** A public Oura Ring 5
-> teardown (a shipping ring in this class) puts its cell at **10.2 mAh**, half my
-> assumption. That makes the budgets **~61 µA** and **~425 µA**, and the §4.2 week
-> design (~108 µA) delivers **under 4 days**, not 7.7. I keep the 20 mAh arithmetic
-> because the *method* rescales linearly — but a 7-day ring at this feature set is
-> harder than the numbers suggest, and cell capacity is the first measurement, not
-> an assumption. See A1.
+**Likely optimistic.** Public teardowns of shipping rings in this class show cells near **~10 mAh**. If so, budgets become ~61 µA / ~425 µA, and a ~108 µA week design lasts **under 4 days**. Keep the 20 mAh math because the method scales linearly — but **measure cell capacity first**.
 
-### 4.2 Estimated current budget
+### 4.2 Rough current split (µA average)
 
-Order-of-magnitude, bench-validate. Per-subsystem average current, µA. **Week mode**: IMU WoM+12.5 Hz accel, PPG 15 s/15 min, temp 1/min, 1000 ms conn, batched. **Research mode**: IMU 50 Hz accel+gyro, PPG continuous 25 Hz, temp 1 Hz, 30 ms conn.
-
-| Subsystem | Week | Research |
+| Subsystem | Week mode | Research mode |
 |---|---|---|
-| M33 (OFF+retention wakes → continuous) | 12 | 120 |
-| PPR acquisition | 15 | 60 |
-| IMU (12.5 Hz accel → 50 Hz accel+gyro) | 15 | 150 |
-| **PPG** (1.8 mA LED; 1.67% duty → continuous) | **30** | **400** |
+| Main CPU (sleep-heavy → more active) | 12 | 120 |
+| Acquisition (PPR or equiv.) | 15 | 60 |
+| IMU | 15 | 150 |
+| **PPG** | **30** | **400** |
 | Temperature | 1 | 3 |
 | Cap touch | 5 | 10 |
-| BLE (1 s batched → 30 ms) | 20 | 120 |
+| BLE | 20 | 120 |
 | Quiescent + gauge + leakage | 10 | 15 |
-| **Total** | **~108 µA → ~7.7 days** | **~878 µA → 22.8 h** |
+| **Total** | **~108 µA → ~7.7 days** | **~878 µA → ~22.8 h** |
 
-Budget was 119 µA (week) / 833 µA (24 h). **Research mode misses 24 h by ~5%** — a real finding, not rounding. Fix by trimming PPG duty (25→20 Hz or shorter LED pulse), gating gyro to motion windows, or relaxing conn to 50 ms. I won't claim 24 h until measured.
+Week mode assumptions: light IMU, sparse PPG, slow BLE, batched.  
+Research: full IMU, continuous PPG, fast connection.
 
-### 4.3 PPG dominates — everything else is noise
+**Research mode misses 24 h by ~5% on this estimate.** Fix candidates: lower PPG rate, gate gyro to motion, 50 ms conn. Do not claim 24 h until measured.
 
-PPG energy ≈ **LED current × pulse width × sample rate** — all three firmware-controllable, spanning two orders of magnitude. Levers, best first:
+### 4.3 Save energy where it matters
 
-1. **Adaptive sampling gated on IMU.** Measure HR only when still — motion artifact makes PPG-during-movement largely unusable, so this discards already-poor data (a moving hand is the worst-case PPG environment).
-2. **Closed-loop LED drive.** Use the AFE's ambient/gain loop for the minimum LED current clearing the SNR threshold for *this* finger, not a fixed worst case — skin tone, perfusion, and fit move it several-fold.
-3. **Duty-cycle the LED, not just the sample rate.** Shorter pulses at higher instantaneous current hold SNR at lower average energy, up to the AFE settling limit.
+PPG energy ≈ LED current × pulse width × sample rate. Optimize that before MCU micro-optimizations.
 
-MCU clock/sleep/compiler tuning comes only after: shaving 5 µA off the M33 is meaningless while PPG spends 400.
+1. **Sample HR when still** (motion artifact often makes active PPG useless anyway)
+2. **Closed-loop LED current** — minimum that meets SNR for this finger
+3. **Shorter LED pulses** if the AFE still settles
+4. Then: batch BLE, long week-mode interval, rail gating, deep sleep
 
-### 4.4 Mechanism
-
-Zephyr tickless PM; M33 in System OFF + RAM retention between BLE events; device runtime PM + load-switch gating on unused rails; all wakeups interrupt-driven (only periodic timer: the low-power RTC). Consolidate wake sources — align batch processing to BLE connection events.
+### 4.4 Mechanisms
+Tickless Zephyr PM; deep sleep + RAM retention between BLE events; runtime PM + load switches; interrupt-driven wake; align batch work to connection events.
 
 ---
 
-## 5. Future Sensor Expansion
+## 5. Future sensor expansion
 
-### 5.1 Bus allocation
+### 5.1 Bus map
 
 | Bus | Sensors | Why |
 |---|---|---|
-| SPIM (high speed) | IMU, PPG | Burst FIFO reads; SPI @8 MHz empties a 512-sample FIFO far faster than TWIM, and radio-on time is energy |
-| TWIM (I²C) | Temp, fuel gauge, future slow sensors (SpO₂ aux, ambient light, magnetometer) | Cheap on pins; trivial rates |
-| QSPI / external flash | Offline log storage, if RRAM insufficient | |
-| Direct GPIO / AIN | Cap touch (nRF54L15 comparator), motor drive, all INT lines | |
+| SPI | IMU, PPG | Fast FIFO drain |
+| I²C | Temp, gauge, future slow sensors | Cheap, low rate |
+| QSPI / flash | Offline log if needed | Capacity |
+| GPIO / AIN | Touch, motor, all IRQs | Direct |
 
-Rule of thumb: FIFO + burst-read → SPI; ≤ 10 Hz → I²C. Reserve two spare GPIOs to test pads and one spare I²C address block.
+Rule of thumb: FIFO + burst → SPI; ≤10 Hz → I²C. Leave spare GPIOs and I²C address space.
 
-### 5.2 Capability/descriptor-driven design — the key point
-
-Sensors register into a static table:
+### 5.2 Discoverable sensor table
 
 ```c
 struct sensor_desc {
     uint8_t  id;
-    uint8_t  record_type;      /* TLV tag */
+    uint8_t  record_type;   /* wire tag */
     uint16_t record_size;
     uint16_t default_rate_mhz;
-    const struct sensor_vtable *ops;  /* init, start, stop, read, power_gate */
+    const struct sensor_vtable *ops;
     struct ring_buffer *rb;
 };
 ```
 
-The BLE **capability characteristic is generated from this table at build time**. Adding a sensor is *a table entry plus a driver*: the GATT layout doesn't change, the protocol version doesn't bump, and — critically — **the app needs no coupled release**. It reads the descriptor at connect, discovers `sensor_id = 7, record_type = 0x21, record_size = 6`, and renders it generically or ignores it. An app built before the sensor existed keeps working.
+BLE **capability** is generated from this table. Adding a sensor = table entry + driver. GATT layout stays stable; old apps ignore unknown types. Avoid lockstep app/firmware releases for every hardware variant.
 
-The alternative — a hand-written GATT layout per sensor set — forces lockstep firmware/app releases for every hardware variant, and an open platform will have many variants we don't control.
+### 5.3 Compatibility
+- Devicetree overlays per board revision
+- Protocol version in capability; app negotiates down
+- Type-tagged records; never reuse a tag for a new layout
+- If dual-core: shared layout hash at boot; refuse mismatch
 
-### 5.3 Variants and compatibility
-
-- **Devicetree overlays per variant.** `ring_rev_c.overlay` adds the node; the table populates from devicetree, so the image self-describes.
-- **Versioned protocol** in the capability descriptor; the app negotiates down.
-- **Forward-compatible framing.** TLV/type-tagged records make unknown types skippable, not fatal. Never reuse a type tag for a different layout.
-- **Dual-image versioning** (with PPR, the table lives in shared memory): both images build together, gated on the §1.3 layout hash.
-
-### 5.4 Physical limits
-
-Board area, not software, is the real constraint. Reserve pads and INT routing now even for sensors we won't ship (unpopulated footprints are near-free); keep the antenna keep-out sacred (a part near it costs range); any optical sensor needs a skin-facing window plus optical isolation from PPG — mechanical before electrical. Adding one sensor may force a full mechanical re-spin.
+### 5.4 Physical limit
+Board area and antenna keep-out beat software. Reserve unpopulated pads early. Optical sensors need a skin window and isolation from PPG — mechanical first.
 
 ---
 
-## 6. Battery Life Trade-Offs: 24-Hour vs 1-Week
+## 6. 24-hour vs 1-week trade-off
 
-Not two settings of one product — two products sharing a BOM. The gap is roughly **7×** in average current (119 µA vs 833 µA), spent almost entirely on PPG and radio duty cycle. Per-sensor config is in §4.2; the higher-level contrast:
+Two **named product modes**, not a vague “battery saver” slider (provenance of data matters for researchers).
 
-| Dimension | Week mode | 24-h research mode |
+| | Week mode | Research mode |
 |---|---|---|
-| BLE interval | 400–1000 ms, latency 4–10 | 15–50 ms, latency 0 |
-| Data delivery | Batched, delay-tolerant (seconds) | Near-real-time streaming |
-| Offline logging | Primary path | Secondary |
-| Est. average / runtime @ 20 mAh | ~108 µA → ~7.7 days | ~878 µA → ~22.8 h (misses) |
-| Data yield | Sparse, trend-quality | Dense, raw, publication-quality |
+| BLE | 400–1000 ms, latency OK | 15–50 ms, low latency |
+| Delivery | Batched, delay-tolerant | Near real-time |
+| Offline log | Primary | Secondary |
+| Est. @ 20 mAh | ~108 µA → ~7.7 days | ~878 µA → ~22.8 h (short) |
+| Data | Sparse trends | Dense raw streams |
 
-What's traded is **data density for time**: raw continuous PPG and 50 Hz IMU for the researcher, a week of sleep/step trends for the consumer. Ship both as explicit named modes over the stream-control characteristic, the capability descriptor advertising supported modes — not a vague "power saving" slider that muddies data provenance.
-
-- **Battery capacity isn't the lever.** 20 → 25 mAh buys 25% (and ring volume likely gives *less*, not more — §4.1); halving PPG duty buys ~30% of the week budget. Optimise duty cycle; treat the cell as fixed by mechanical design.
-- **Research mode assumes charging discipline.** Design the cradle and low-battery UX around a daily charge; firmware refuses research mode below ~40% SoC rather than dying mid-study.
+**Trade:** data density for runtime.  
+Cell size is mostly fixed by mechanics; **duty cycle** (especially PPG) is the real lever.  
+Research mode needs daily charge UX; refuse start below ~40% SoC rather than die mid-study.
 
 ---
 
-## 7. Assumptions, Risks and Unknowns
+## 7. Assumptions, risks, unknowns
 
 ### Assumptions
 
 | # | Assumption | If wrong |
 |---|---|---|
-| A1 | 20 mAh usable cell | Budgets scale linearly, but **likely optimistic** (see §4.1) — the binding constraint on the whole design; first thing to measure. |
-| A2 | Current figures are estimates; no IMU/PPG/temp parts fixed | Datasheets could move any line ±3×, PPG especially |
-| A3 | PPG is the dominant consumer | If the AFE is far better, BLE becomes the top lever and §4.3 reorders |
-| A5 | RRAM (~1.5 MB) suffices for offline logging | Add external QSPI flash — area and power not budgeted |
+| A1 | ~20 mAh usable cell | Likely high; all runtimes scale down — measure first |
+| A2 | Current table is estimates; parts not frozen | Any line can move a lot, PPG especially |
+| A3 | PPG is the dominant load | If not, BLE becomes the top optimization |
+| A4 | On-chip log memory enough | May need external flash (area + power) |
 
-### Risks
+### Top risks
 
-Top risks (secondary risks — motor transients, iOS/Android param divergence, charge-pad corrosion/ESD, NCS churn — are addressed inline in §1–§3).
-
-| Risk | Sev | Mitigation |
+| Risk | Severity | Mitigation |
 |---|---|---|
-| Antenna detuning by the finger; poor field range | High | Finger-phantom fixture from day one; measure TRP on a hand; budget a chip-antenna alternative |
-| Research mode misses 24 h (est. 22.8 h) | High | Trim PPG rate / gate gyro; measure before committing |
-| Skin temperature corrupted by self-heating | High | Thermal isolation, placement, blackout windows; document as relative-not-absolute |
-| PPG motion artifact makes HR unreliable in activity | High | Adaptive sampling; document when HR is valid |
-| PPR/M33 shared-memory corruption on version skew | Med | Layout-hash boot gate; SPSC lock-free indices; fall back to PPI/DMA-only |
+| Antenna detuned by finger | High | Finger phantom; protect keep-out; chip-antenna option |
+| Research mode &lt; 24 h | High | Cut PPG / gate gyro / slow BLE; measure before commit |
+| Temperature self-heating | High | Placement, isolation, blackout windows; relative only |
+| Bad HR while moving | High | Adaptive sampling; quality flags |
+| Dual-core version skew | Med | Layout hash at boot; or stay single-core + DMA |
 
-### Unknowns — and how I would resolve each
+Secondary risks (called out inline above): motor rail sag, iOS/Android param policy, charge-pad corrosion/ESD, NCS churn.
 
-1. **Does PPR actually beat PPI + DMA on the M33?** Instrument both paths on the EVK with a PPK II, same load and wall time, compare mAh. Gates §1.3.
-2. **Real PPG energy per measurement** for the chosen AFE/LEDs at the SNR we need, on real fingers across skin tones — bench sweep of LED current × pulse width × rate vs a reference HR monitor. Decides whether either budget is achievable.
-3. **Cold-start vs standby crossover per rail-gated sensor.** Power-up + re-init + settle energy vs standby draw over the gating interval; per-part, decides §2's gating policy.
-4. **Antenna performance under load.** Measured TRP/TIS with the ring worn, both antenna candidates.
-5. **Actual regulator and leakage quiescent on assembled hardware** — easily 3× the estimate, which matters on a 119 µA budget.
+### Unknowns — how to close them
+
+1. **PPR vs DMA energy** — same workload on EVK, PPK II, compare mAh  
+2. **Real PPG energy at usable SNR** — LED current × width × rate on real fingers / skin tones vs reference HR  
+3. **Gating vs standby crossover** — per sensor, over realistic off intervals  
+4. **Worn antenna** — TRP/TIS on finger for both antenna options  
+5. **Assembled leakage / regulator IQ** — can be several× the spreadsheet; matters on a 119 µA budget  
+
+---
+
+## Design in one paragraph
+
+Use Zephyr; keep a portable no-alloc sensor manager with sequence numbers and drop accounting; make BLE a pure consumer that batches to the negotiated MTU. On hardware, isolate PPG power and buses, design the antenna for a worn finger, and gate unused rails. Spend power budget on the few controls that matter (PPG duty, BLE wake rate), with explicit **week** and **research** modes. Expand sensors through a discoverable capability table. Treat every µA number as a hypothesis until measured on EVK and DVT.
