@@ -1,8 +1,9 @@
-# Part 1 — System Architecture
+# Part 1 System Architecture
 
-Scope: next-revision open-source smart ring — nRF54L15, IMU, PPG, temperature, cap-touch, LRA/ERM motor, BLE 5.x, ~20 mAh Li-Po. A separate team builds the app in parallel, so the BLE contract is a hard, versioned, discoverable interface.
+Scope: next-revision open-source smart ring — nRF54L15, IMU, PPG, temperature, cap-touch, LRA/ERM motor, BLE 5.x, ~20 mAh Li-Po. 
+A separate team builds the app in parallel, so the BLE contract is a hard, versioned, discoverable interface.
 
-All figures below are **order-of-magnitude estimates, not datasheet values** — each needs bench validation on DVT (§7 names the measurement for each open number).
+All figures below are **order-of-magnitude estimates, not datasheet values** - each needs bench validation on DVT (§7 names the measurement for each open number).
 
 ---
 
@@ -10,16 +11,12 @@ All figures below are **order-of-magnitude estimates, not datasheet values** —
 
 ### 1.1 RTOS choice: Zephyr via nRF Connect SDK
 
-**Decision: Zephyr + nRF Connect SDK (NCS).** In order of weight:
+**Decision: Zephyr + nRF Connect SDK (NCS).**:
 
-- First-class NCS target: maintained BLE controller, PPR/FLPR support, nrfx drivers. Bare-metal means owning radio timing.
-- Devicetree + Kconfig give board variants for free — critical for §5, where a new sensor is an overlay, not a fork.
+- First-class target: maintained BLE controller, PPR/FLPR support, nrfx drivers.
+- Devicetree + Kconfig give board variants for free - critical for §5, where a new sensor is an overlay.
 - `native_sim` runs the app layer on host; with the portable core (§1.2) that's hardware-free CI unit testing.
-- MCUboot + SMP/mcumgr gives signed DFU out of the box; "roll your own bootloader" is indefensible for a third-party-developer platform. (Zephyr's `pm_device`/soft-off machinery also serves §4 directly.)
-
-**Alternative: bare-metal `nrfx` superloop** wins on RAM and idle determinism but loses at this feature count (six mixed-rate streams, timing-sensitive BLE, offline logging with wear management, DFU) — an RTOS-shaped problem. Tickless idle means the RTOS isn't the power problem; the radio and PPG LEDs are.
-
-Cost: NCS version churn and a contributor-hostile build system — mitigated by a pinned NCS SHA in a west manifest plus a container build.
+- MCUboot + SMP/mcumgr gives signed DFU out of the box;
 
 ### 1.2 Layering
 
