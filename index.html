@@ -99,10 +99,79 @@
   </tbody>
 </table>
 
-<div class="embed3d">
-  <iframe src="https://app.kernelcad.com/embed/0a-fbk2x" title="nRF54L15 smart ring - interactive 3D model" allowfullscreen=""></iframe>
+<div class="embed3d" id="stl-viewer" style="position: relative;">
+  <div id="stl-canvas-container" style="width: 100%; height: 100%;"></div>
+  <div id="stl-loading" style="position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--card); color: var(--dim); font-size: 12px;">
+    Loading 3D preview...
+  </div>
 </div>
-<p class="cap"><strong>Drag to rotate.</strong> Flex PCB + sensors in band (kernelCAD model).</p>
+<p class="cap"><strong>Drag to rotate.</strong> Interactive 3D STL mesh model (50 KB static asset).</p>
+
+<script type="module">
+  import * as THREE from 'https://cdn.skypack.dev/three@0.136.0';
+  import { STLLoader } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/loaders/STLLoader.js';
+  import { OrbitControls } from 'https://cdn.skypack.dev/three@0.136.0/examples/jsm/controls/OrbitControls.js';
+
+  const container = document.getElementById('stl-canvas-container');
+  const loading = document.getElementById('stl-loading');
+  if (container) {
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+
+    camera.position.set(25, 20, 30);
+
+    const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+    scene.add(ambientLight);
+
+    const dirLight1 = new THREE.DirectionalLight(0xff5c37, 1.2);
+    dirLight1.position.set(20, 30, 20);
+    scene.add(dirLight1);
+
+    const dirLight2 = new THREE.DirectionalLight(0x39d353, 0.8);
+    dirLight2.position.set(-20, -10, -20);
+    scene.add(dirLight2);
+
+    const loader = new STLLoader();
+    loader.load('assets/smart-ring-preview.stl', (geometry) => {
+      geometry.center();
+      geometry.computeVertexNormals();
+
+      const material = new THREE.MeshStandardMaterial({
+        color: 0x88aacc,
+        roughness: 0.3,
+        metalness: 0.6
+      });
+      const mesh = new THREE.Mesh(geometry, material);
+      scene.add(mesh);
+
+      if (loading) loading.style.display = 'none';
+    }, undefined, (err) => {
+      if (loading) loading.textContent = 'Failed to load 3D preview';
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      if (!container) return;
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+  }
+</script>
 
 <p class="lbl">Example BOM (demo / twin)</p>
 <table>
