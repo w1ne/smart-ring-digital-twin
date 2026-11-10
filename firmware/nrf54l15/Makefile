@@ -7,7 +7,8 @@
 # portability claim testable rather than aspirational.
 #
 #   make            build ELF
-#   make run        build and run it in the LabWired simulator
+#   make run LABWIRED=/path/to/labwired-core
+#                   build and verify it in the LabWired simulator
 #   make clean
 
 CROSS   ?= arm-none-eabi-
@@ -19,7 +20,9 @@ BUILD   := build
 CORE    := ../../src
 
 # LabWired checkout providing the nRF54L15 profile and the smart-ring system.
-LABWIRED ?= /Users/andrii/Projects/lw-nrf54l15
+# The CLI can be an installed release or an explicitly selected local build.
+LABWIRED     ?=
+LABWIRED_CLI ?= labwired
 
 # Core (portable, shared with the host build) + target-only sources.
 CORE_SRCS := $(CORE)/sm_ringbuf.c $(CORE)/sensor_manager.c $(CORE)/ble_batch.c
@@ -67,15 +70,19 @@ $(BUILD)/$(TARGET).elf: $(OBJS)
 	$(CC) $(OBJS) $(LDFLAGS) $(LDLIBS) -o $@
 	$(SIZE) $@
 
-run: $(BUILD)/$(TARGET).elf
-	$(LABWIRED)/target/release/labwired \
-	    --firmware $(abspath $(BUILD)/$(TARGET).elf) \
-	    --system $(LABWIRED)/configs/systems/smart-ring.yaml \
-	    --max-steps 120000000
+run: test
+
+test: $(BUILD)/$(TARGET).elf
+	@test -n "$(LABWIRED)" || { echo "Set LABWIRED to a labwired-core checkout." >&2; exit 2; }
+	"$(LABWIRED_CLI)" run --firmware "$(BUILD)/$(TARGET).elf" \
+	    --system "$(LABWIRED)/configs/systems/smart-ring.yaml" \
+	    --max-steps 600000000 > "$(BUILD)/uart.log"
+	@cat "$(BUILD)/uart.log"
+	python3 tests/check_uart.py "$(BUILD)/uart.log"
 
 clean:
 	rm -rf $(BUILD)
 
 -include $(OBJS:.o=.d)
 
-.PHONY: all run clean
+.PHONY: all run test clean
