@@ -155,7 +155,7 @@ TEST(temp_frame_uses_millisecond_deltas)
 
     CHECK_EQ(sm_init(&mgr, 0), SM_OK);
     for (i = 0; i < 20; i++) {
-        sm_submit_temp(&mgr, 33000 + i * 10, (uint64_t)i * 1000000ull);
+        sm_submit_temp(&mgr, 33000 + i * 10, (uint64_t)i * UINT64_C(1000000));
     }
     n = sm_read_temp(&mgr, samples, 24);
     CHECK_EQ(n, 20);

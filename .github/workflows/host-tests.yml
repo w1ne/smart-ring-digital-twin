@@ -1,0 +1,29 @@
+name: Host tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: host-tests-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  host-tests:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure strict C11 build
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
+      - name: Build host tests and demo
+        run: cmake --build build --parallel 2
+      - name: Run all four host test suites
+        run: ctest --test-dir build --output-on-failure

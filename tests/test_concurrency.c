@@ -66,7 +66,7 @@ static void *imu_producer(void *arg)
     for (i = 0; i < n; i++) {
         int16_t a[3], g[3];
         encode((int16_t)i, a, g);
-        sm_submit_imu(&mgr, a, g, (uint64_t)i * 20000ull);
+        sm_submit_imu(&mgr, a, g, (uint64_t)i * UINT64_C(20000));
         if ((i & 0x3F) == 0) {
             sched_yield(); /* widen the interleaving window */
         }
@@ -81,7 +81,7 @@ static void *temp_producer(void *arg)
     int i;
 
     for (i = 0; i < n; i++) {
-        sm_submit_temp(&mgr, 33000 + (i % 500), (uint64_t)i * 1000000ull);
+        sm_submit_temp(&mgr, 33000 + (i % 500), (uint64_t)i * UINT64_C(1000000));
         if ((i & 0x1F) == 0) {
             sched_yield();
         }
