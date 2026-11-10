@@ -270,7 +270,7 @@ TEST(temp_peek_release_supports_a_retried_notification)
 
     CHECK_EQ(sm_init(&mgr, 0), SM_OK);
     for (i = 0; i < 6; i++) {
-        sm_submit_temp(&mgr, 33000 + i, (uint64_t)i * 1000000ull);
+        sm_submit_temp(&mgr, 33000 + i, (uint64_t)i * UINT64_C(1000000));
     }
 
     /* First attempt is peeked but not released: everything stays pending. */
